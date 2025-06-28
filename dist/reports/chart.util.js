@@ -4,7 +4,7 @@ exports.themeColors = void 0;
 exports.barChartConfig = barChartConfig;
 exports.pieChartConfig = pieChartConfig;
 exports.renderChart = renderChart;
-const quickchart_js_1 = require("quickchart-js");
+const QuickChart = require('quickchart-js');
 exports.themeColors = {
     primary: '#3B82F6',
     secondary: '#6B7280',
@@ -133,7 +133,7 @@ function pieChartConfig({ labels, data, title, }) {
     };
 }
 async function renderChart(config) {
-    const chart = new quickchart_js_1.default();
+    const chart = new QuickChart();
     chart.setConfig(config);
     chart.setWidth(800);
     chart.setHeight(400);

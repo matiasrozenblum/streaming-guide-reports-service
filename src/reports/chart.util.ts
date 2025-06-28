@@ -1,4 +1,4 @@
-import QuickChart from 'quickchart-js';
+const QuickChart = require('quickchart-js');
 
 export const themeColors = {
   primary: '#3B82F6',
