@@ -1,31 +1,24 @@
-# Build stage
-FROM node:22-alpine AS builder
+# Build stage - Use slim image to avoid Alpine OOM issues
+FROM node:22-slim AS builder
 
-# Install dependencies for Puppeteer and native compilation
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
+# Install system dependencies in smaller chunks to avoid OOM
+RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
-    cairo-dev \
-    jpeg-dev \
-    pango-dev \
-    musl-dev \
-    giflib-dev \
-    pixman-dev \
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    freetype-dev
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Puppeteer dependencies separately
+RUN apt-get update && apt-get install -y \
+    chromium \
+    fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set Puppeteer environment variables
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Create app directory
 WORKDIR /app
@@ -33,8 +26,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev dependencies for building)
-RUN npm ci --jobs=2
+# Install dependencies with reduced parallelism to avoid OOM
+RUN npm ci --jobs=1
 
 # Copy source code
 COPY . .
@@ -43,27 +36,18 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:22-alpine AS production
+FROM node:22-slim AS production
 
-# Install dependencies for Puppeteer and runtime libraries for canvas
-RUN apk add --no-cache \
+# Install runtime dependencies for Puppeteer
+RUN apt-get update && apt-get install -y \
     chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    cairo \
-    jpeg \
-    pango \
-    giflib \
-    pixman \
-    pangomm \
-    libjpeg-turbo
+    fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set Puppeteer environment variables
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Create app directory
 WORKDIR /app
@@ -71,8 +55,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install only production dependencies
-RUN npm ci --only=production --jobs=2
+# Install only production dependencies with reduced parallelism
+RUN npm ci --only=production --jobs=1
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
