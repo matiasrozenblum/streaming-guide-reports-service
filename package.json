@@ -1,0 +1,39 @@
+{
+  "name": "streaming-guide-reports-service",
+  "version": "1.0.0",
+  "description": "Reports generation service for Streaming Guide",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/swagger": "^11.0.7",
+    "chart.js": "^4.5.0",
+    "chartjs-node-canvas": "^5.0.0",
+    "csv-stringify": "^6.5.2",
+    "dayjs": "^1.11.9",
+    "puppeteer": "^24.0.0",
+    "reflect-metadata": "^0.2.1",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.0.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "@types/puppeteer": "^5.4.7",
+    "source-map-support": "^0.5.21",
+    "ts-loader": "^9.4.4",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.0.4"
+  }
+}
