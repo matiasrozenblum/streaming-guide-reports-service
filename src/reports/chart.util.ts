@@ -1,4 +1,4 @@
-import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
+import QuickChart from 'quickchart-js';
 
 export const themeColors = {
   primary: '#3B82F6',
@@ -9,8 +9,6 @@ export const themeColors = {
   background: '#FFFFFF',
   text: '#1F2937',
 };
-
-const chartJSNodeCanvas = new ChartJSNodeCanvas({ width: 800, height: 400, backgroundColour: themeColors.background });
 
 export function barChartConfig({
   labels,
@@ -151,5 +149,11 @@ export function pieChartConfig({
 }
 
 export async function renderChart(config: any): Promise<Buffer> {
-  return await chartJSNodeCanvas.renderToBuffer(config);
+  const chart = new QuickChart();
+  chart.setConfig(config);
+  chart.setWidth(800);
+  chart.setHeight(400);
+  chart.setBackgroundColor(themeColors.background);
+  
+  return await chart.toBuffer();
 } 
