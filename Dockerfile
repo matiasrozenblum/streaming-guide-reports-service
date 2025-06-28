@@ -1,6 +1,7 @@
-FROM node:22-alpine
+# Use Node.js 18 Alpine as base image
+FROM node:18-alpine
 
-# Install Chromium + dependencies for canvas and puppeteer
+# Install dependencies for Puppeteer
 RUN apk add --no-cache \
     chromium \
     nss \
@@ -8,29 +9,20 @@ RUN apk add --no-cache \
     freetype-dev \
     harfbuzz \
     ca-certificates \
-    ttf-freefont \
-    nodejs \
-    yarn \
-    bash \
-    python3 \
-    make \
-    g++ \
-    cairo-dev \
-    pango-dev \
-    jpeg-dev \
-    giflib-dev \
-    pixman-dev \
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    pkgconfig
+    ttf-freefont
 
+# Set Puppeteer environment variables
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Create app directory
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci --only=production
 
 # Copy source code
 COPY . .
@@ -38,14 +30,8 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Set environment variables
-ENV NODE_ENV=production
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV PORT=3001
-
 # Expose port
 EXPOSE 3001
 
 # Start the application
-CMD ["node", "dist/main.js"] 
+CMD ["npm", "run", "start:prod"] 
