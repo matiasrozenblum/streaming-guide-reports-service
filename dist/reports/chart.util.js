@@ -4,7 +4,7 @@ exports.themeColors = void 0;
 exports.barChartConfig = barChartConfig;
 exports.pieChartConfig = pieChartConfig;
 exports.renderChart = renderChart;
-const chartjs_node_canvas_1 = require("chartjs-node-canvas");
+const quickchart_js_1 = require("quickchart-js");
 exports.themeColors = {
     primary: '#3B82F6',
     secondary: '#6B7280',
@@ -14,7 +14,6 @@ exports.themeColors = {
     background: '#FFFFFF',
     text: '#1F2937',
 };
-const chartJSNodeCanvas = new chartjs_node_canvas_1.ChartJSNodeCanvas({ width: 800, height: 400, backgroundColour: exports.themeColors.background });
 function barChartConfig({ labels, datasets, title, yLabel = 'Value', }) {
     return {
         type: 'bar',
@@ -134,6 +133,13 @@ function pieChartConfig({ labels, data, title, }) {
     };
 }
 async function renderChart(config) {
-    return await chartJSNodeCanvas.renderToBuffer(config);
+    const chart = new quickchart_js_1.default();
+    chart.setConfig(config);
+    chart.setWidth(800);
+    chart.setHeight(400);
+    chart.setBackgroundColor(exports.themeColors.background);
+    const response = await chart.toDataUrl();
+    const base64Data = response.split(',')[1];
+    return Buffer.from(base64Data, 'base64');
 }
 //# sourceMappingURL=chart.util.js.map

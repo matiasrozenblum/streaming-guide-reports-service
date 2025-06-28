@@ -155,5 +155,7 @@ export async function renderChart(config: any): Promise<Buffer> {
   chart.setHeight(400);
   chart.setBackgroundColor(themeColors.background);
   
-  return await chart.toBuffer();
+  const response = await chart.toDataUrl();
+  const base64Data = response.split(',')[1];
+  return Buffer.from(base64Data, 'base64');
 } 
