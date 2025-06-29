@@ -1,4 +1,7 @@
+import { DataSource } from 'typeorm';
 export declare class ReportsService {
+    private dataSource;
+    constructor(dataSource: DataSource);
     generateReport(request: {
         type: 'users' | 'subscriptions' | 'weekly-summary';
         format: 'csv' | 'pdf';
@@ -18,4 +21,5 @@ export declare class ReportsService {
     private buildUsersReportHtml;
     private buildSubscriptionsReportHtml;
     private htmlToPdfBuffer;
+    private getSubscriptionsByAge;
 }

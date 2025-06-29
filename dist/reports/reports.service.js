@@ -5,13 +5,29 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ReportsService = void 0;
 const common_1 = require("@nestjs/common");
+const typeorm_1 = require("@nestjs/typeorm");
+const typeorm_2 = require("typeorm");
 const csv_stringify_1 = require("csv-stringify");
 const chart_util_1 = require("./chart.util");
 const weekly_report_pdf_util_1 = require("./weekly-report-pdf.util");
+const posthog_util_1 = require("./posthog.util");
+const dayjs = require("dayjs");
+const users_entity_1 = require("../users/users.entity");
+const user_subscription_entity_1 = require("../users/user-subscription.entity");
+const programs_entity_1 = require("../programs/programs.entity");
 let ReportsService = class ReportsService {
+    constructor(dataSource) {
+        this.dataSource = dataSource;
+    }
     async generateReport(request) {
         switch (request.type) {
             case 'users':
@@ -29,13 +45,33 @@ let ReportsService = class ReportsService {
         }
     }
     async generateUsersReport(from, to, format) {
-        const users = [
-            { id: 1, firstName: 'John', lastName: 'Doe', email: 'john@example.com', gender: 'male', birthDate: '1990-01-01', createdAt: '2025-06-01' },
-            { id: 2, firstName: 'Jane', lastName: 'Smith', email: 'jane@example.com', gender: 'female', birthDate: '1985-05-15', createdAt: '2025-06-02' },
-        ];
+        const users = await this.dataSource
+            .createQueryBuilder(users_entity_1.User, 'user')
+            .select([
+            'user.id',
+            'user.firstName',
+            'user.lastName',
+            'user.email',
+            'user.gender',
+            'user.birthDate',
+            'user.createdAt'
+        ])
+            .where('user.createdAt >= :from', { from: `${from}T00:00:00Z` })
+            .andWhere('user.createdAt <= :to', { to: `${to}T23:59:59Z` })
+            .orderBy('user.createdAt', 'DESC')
+            .getMany();
+        const formattedUsers = users.map(user => ({
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            gender: user.gender || 'N/A',
+            birthDate: user.birthDate ? dayjs(user.birthDate).format('YYYY-MM-DD') : 'N/A',
+            createdAt: dayjs(user.createdAt).format('YYYY-MM-DD'),
+        }));
         if (format === 'csv') {
             return new Promise((resolve, reject) => {
-                (0, csv_stringify_1.stringify)(users, {
+                (0, csv_stringify_1.stringify)(formattedUsers, {
                     header: true,
                     columns: {
                         id: 'ID',
@@ -55,18 +91,49 @@ let ReportsService = class ReportsService {
             });
         }
         else {
-            const html = this.buildUsersReportHtml(users, from, to);
+            const html = this.buildUsersReportHtml(formattedUsers, from, to);
             return await this.htmlToPdfBuffer(html);
         }
     }
     async generateSubscriptionsReport(from, to, format, channelId, programId) {
-        const subscriptions = [
-            { id: 1, userFirstName: 'John', userLastName: 'Doe', userEmail: 'john@example.com', programName: 'Show 1', channelName: 'Channel 1', createdAt: '2025-06-01' },
-            { id: 2, userFirstName: 'Jane', userLastName: 'Smith', userEmail: 'jane@example.com', programName: 'Show 2', channelName: 'Channel 2', createdAt: '2025-06-02' },
-        ];
+        const queryBuilder = this.dataSource
+            .createQueryBuilder(user_subscription_entity_1.UserSubscription, 'subscription')
+            .leftJoinAndSelect('subscription.user', 'user')
+            .leftJoinAndSelect('subscription.program', 'program')
+            .leftJoinAndSelect('program.channel', 'channel')
+            .select([
+            'subscription.id',
+            'subscription.createdAt',
+            'user.firstName',
+            'user.lastName',
+            'user.email',
+            'program.name',
+            'channel.name'
+        ])
+            .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+            .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+            .andWhere('subscription.isActive = :isActive', { isActive: true });
+        if (channelId) {
+            queryBuilder.andWhere('channel.id = :channelId', { channelId });
+        }
+        if (programId) {
+            queryBuilder.andWhere('program.id = :programId', { programId });
+        }
+        const subscriptions = await queryBuilder
+            .orderBy('subscription.createdAt', 'DESC')
+            .getMany();
+        const formattedSubscriptions = subscriptions.map(sub => ({
+            id: sub.id,
+            userFirstName: sub.user.firstName,
+            userLastName: sub.user.lastName,
+            userEmail: sub.user.email,
+            programName: sub.program.name,
+            channelName: sub.program.channel.name,
+            createdAt: dayjs(sub.createdAt).format('YYYY-MM-DD'),
+        }));
         if (format === 'csv') {
             return new Promise((resolve, reject) => {
-                (0, csv_stringify_1.stringify)(subscriptions, {
+                (0, csv_stringify_1.stringify)(formattedSubscriptions, {
                     header: true,
                     columns: {
                         id: 'ID',
@@ -86,45 +153,172 @@ let ReportsService = class ReportsService {
             });
         }
         else {
-            const html = this.buildSubscriptionsReportHtml(subscriptions, from, to);
+            const html = this.buildSubscriptionsReportHtml(formattedSubscriptions, from, to);
             return await this.htmlToPdfBuffer(html);
         }
     }
     async generateWeeklyReport(params) {
+        const [totalNewUsers, usersByGender, totalNewSubscriptions, subscriptionsByGender, subscriptionsByAge, topChannelsBySubscriptions, topProgramsBySubscriptions, youtubeClicksLive, youtubeClicksDeferred] = await Promise.all([
+            this.dataSource
+                .createQueryBuilder(users_entity_1.User, 'user')
+                .where('user.createdAt >= :from', { from: `${params.from}T00:00:00Z` })
+                .andWhere('user.createdAt <= :to', { to: `${params.to}T23:59:59Z` })
+                .getCount(),
+            this.dataSource
+                .createQueryBuilder(users_entity_1.User, 'user')
+                .select('user.gender', 'gender')
+                .addSelect('COUNT(*)', 'count')
+                .where('user.createdAt >= :from', { from: `${params.from}T00:00:00Z` })
+                .andWhere('user.createdAt <= :to', { to: `${params.to}T23:59:59Z` })
+                .andWhere('user.gender IS NOT NULL')
+                .groupBy('user.gender')
+                .getRawMany(),
+            this.dataSource
+                .createQueryBuilder(user_subscription_entity_1.UserSubscription, 'subscription')
+                .where('subscription.createdAt >= :from', { from: `${params.from}T00:00:00Z` })
+                .andWhere('subscription.createdAt <= :to', { to: `${params.to}T23:59:59Z` })
+                .andWhere('subscription.isActive = :isActive', { isActive: true })
+                .getCount(),
+            this.dataSource
+                .createQueryBuilder(user_subscription_entity_1.UserSubscription, 'subscription')
+                .leftJoin('subscription.user', 'user')
+                .select('user.gender', 'gender')
+                .addSelect('COUNT(*)', 'count')
+                .where('subscription.createdAt >= :from', { from: `${params.from}T00:00:00Z` })
+                .andWhere('subscription.createdAt <= :to', { to: `${params.to}T23:59:59Z` })
+                .andWhere('subscription.isActive = :isActive', { isActive: true })
+                .andWhere('user.gender IS NOT NULL')
+                .groupBy('user.gender')
+                .getRawMany(),
+            this.getSubscriptionsByAge(params.from, params.to),
+            this.dataSource
+                .createQueryBuilder(user_subscription_entity_1.UserSubscription, 'subscription')
+                .leftJoin('subscription.program', 'program')
+                .leftJoin('program.channel', 'channel')
+                .select('channel.id', 'channelId')
+                .addSelect('channel.name', 'channelName')
+                .addSelect('COUNT(*)', 'count')
+                .where('subscription.createdAt >= :from', { from: `${params.from}T00:00:00Z` })
+                .andWhere('subscription.createdAt <= :to', { to: `${params.to}T23:59:59Z` })
+                .andWhere('subscription.isActive = :isActive', { isActive: true })
+                .groupBy('channel.id, channel.name')
+                .orderBy('count', 'DESC')
+                .limit(5)
+                .getRawMany(),
+            this.dataSource
+                .createQueryBuilder(user_subscription_entity_1.UserSubscription, 'subscription')
+                .leftJoin('subscription.program', 'program')
+                .leftJoin('program.channel', 'channel')
+                .select('program.id', 'programId')
+                .addSelect('program.name', 'programName')
+                .addSelect('channel.name', 'channelName')
+                .addSelect('COUNT(*)', 'count')
+                .where('subscription.createdAt >= :from', { from: `${params.from}T00:00:00Z` })
+                .andWhere('subscription.createdAt <= :to', { to: `${params.to}T23:59:59Z` })
+                .andWhere('subscription.isActive = :isActive', { isActive: true })
+                .groupBy('program.id, program.name, channel.name')
+                .orderBy('count', 'DESC')
+                .limit(5)
+                .getRawMany(),
+            (0, posthog_util_1.fetchYouTubeClicks)({
+                from: params.from,
+                to: params.to,
+                eventType: 'click_youtube_live',
+                breakdownBy: 'channel_name',
+            }),
+            (0, posthog_util_1.fetchYouTubeClicks)({
+                from: params.from,
+                to: params.to,
+                eventType: 'click_youtube_deferred',
+                breakdownBy: 'channel_name',
+            }),
+        ]);
+        const usersByGenderMap = { male: 0, female: 0, non_binary: 0, rather_not_say: 0 };
+        usersByGender.forEach(item => {
+            usersByGenderMap[item.gender] = parseInt(item.count);
+        });
+        const subscriptionsByGenderMap = { male: 0, female: 0, non_binary: 0, rather_not_say: 0 };
+        subscriptionsByGender.forEach(item => {
+            subscriptionsByGenderMap[item.gender] = parseInt(item.count);
+        });
+        const topChannelsByClicksLive = await (0, posthog_util_1.aggregateClicksBy)(youtubeClicksLive, 'channel_name');
+        const topChannelsByClicksDeferred = await (0, posthog_util_1.aggregateClicksBy)(youtubeClicksDeferred, 'channel_name');
+        const [programClicksLive, programClicksDeferred] = await Promise.all([
+            (0, posthog_util_1.fetchYouTubeClicks)({
+                from: params.from,
+                to: params.to,
+                eventType: 'click_youtube_live',
+                breakdownBy: 'program_name',
+            }),
+            (0, posthog_util_1.fetchYouTubeClicks)({
+                from: params.from,
+                to: params.to,
+                eventType: 'click_youtube_deferred',
+                breakdownBy: 'program_name',
+            }),
+        ]);
+        const topProgramsByClicksLive = await (0, posthog_util_1.aggregateClicksBy)(programClicksLive, 'program_name');
+        const topProgramsByClicksDeferred = await (0, posthog_util_1.aggregateClicksBy)(programClicksDeferred, 'program_name');
+        const programNames = [
+            ...Object.keys(topProgramsByClicksLive),
+            ...Object.keys(topProgramsByClicksDeferred)
+        ];
+        const programChannels = await this.dataSource
+            .createQueryBuilder(programs_entity_1.Program, 'program')
+            .leftJoin('program.channel', 'channel')
+            .select('program.name', 'programName')
+            .addSelect('channel.name', 'channelName')
+            .where('program.name IN (:...programNames)', { programNames })
+            .getRawMany();
+        const programChannelMap = programChannels.reduce((map, item) => {
+            map[item.programName] = item.channelName;
+            return map;
+        }, {});
         const data = {
             from: params.from,
             to: params.to,
-            totalNewUsers: 150,
-            usersByGender: { male: 80, female: 60, non_binary: 5, rather_not_say: 5 },
-            totalNewSubscriptions: 300,
-            subscriptionsByGender: { male: 160, female: 120, non_binary: 10, rather_not_say: 10 },
-            subscriptionsByAge: { under18: 20, age18to30: 100, age30to45: 120, age45to60: 40, over60: 20 },
+            totalNewUsers,
+            usersByGender: usersByGenderMap,
+            totalNewSubscriptions,
+            subscriptionsByGender: subscriptionsByGenderMap,
+            subscriptionsByAge,
             subscriptionsByProgram: [],
             subscriptionsByChannel: [],
-            topChannelsBySubscriptions: [
-                { channelId: 1, channelName: 'Channel 1', count: 50 },
-                { channelId: 2, channelName: 'Channel 2', count: 40 },
-            ],
-            topChannelsByClicksLive: [
-                { channelName: 'Channel 1', count: 200 },
-                { channelName: 'Channel 2', count: 150 },
-            ],
-            topChannelsByClicksDeferred: [
-                { channelName: 'Channel 1', count: 100 },
-                { channelName: 'Channel 2', count: 80 },
-            ],
-            topProgramsBySubscriptions: [
-                { programId: 1, programName: 'Show 1', channelName: 'Channel 1', count: 30 },
-                { programId: 2, programName: 'Show 2', channelName: 'Channel 2', count: 25 },
-            ],
-            topProgramsByClicksLive: [
-                { programName: 'Show 1', channelName: 'Channel 1', count: 120 },
-                { programName: 'Show 2', channelName: 'Channel 2', count: 90 },
-            ],
-            topProgramsByClicksDeferred: [
-                { programName: 'Show 1', channelName: 'Channel 1', count: 60 },
-                { programName: 'Show 2', channelName: 'Channel 2', count: 45 },
-            ],
+            topChannelsBySubscriptions: topChannelsBySubscriptions.map(c => ({
+                channelId: c.channelId,
+                channelName: c.channelName,
+                count: parseInt(c.count),
+            })),
+            topChannelsByClicksLive: Object.entries(topChannelsByClicksLive)
+                .map(([channelName, count]) => ({ channelName, count }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5),
+            topChannelsByClicksDeferred: Object.entries(topChannelsByClicksDeferred)
+                .map(([channelName, count]) => ({ channelName, count }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5),
+            topProgramsBySubscriptions: topProgramsBySubscriptions.map(p => ({
+                programId: p.programId,
+                programName: p.programName,
+                channelName: p.channelName,
+                count: parseInt(p.count),
+            })),
+            topProgramsByClicksLive: Object.entries(topProgramsByClicksLive)
+                .map(([programName, count]) => ({
+                programName,
+                channelName: programChannelMap[programName] || 'Unknown',
+                count
+            }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5),
+            topProgramsByClicksDeferred: Object.entries(topProgramsByClicksDeferred)
+                .map(([programName, count]) => ({
+                programName,
+                channelName: programChannelMap[programName] || 'Unknown',
+                count
+            }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5),
             rankingChanges: [],
         };
         const charts = {
@@ -286,9 +480,39 @@ let ReportsService = class ReportsService {
         await browser.close();
         return pdfBuffer;
     }
+    async getSubscriptionsByAge(from, to) {
+        const subscriptions = await this.dataSource
+            .createQueryBuilder(user_subscription_entity_1.UserSubscription, 'subscription')
+            .leftJoin('subscription.user', 'user')
+            .select('user.birthDate', 'birthDate')
+            .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+            .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+            .andWhere('subscription.isActive = :isActive', { isActive: true })
+            .andWhere('user.birthDate IS NOT NULL')
+            .getRawMany();
+        const ageGroups = { under18: 0, age18to30: 0, age30to45: 0, age45to60: 0, over60: 0 };
+        const currentYear = new Date().getFullYear();
+        subscriptions.forEach(sub => {
+            const birthYear = new Date(sub.birthDate).getFullYear();
+            const age = currentYear - birthYear;
+            if (age < 18)
+                ageGroups.under18++;
+            else if (age >= 18 && age <= 30)
+                ageGroups.age18to30++;
+            else if (age > 30 && age <= 45)
+                ageGroups.age30to45++;
+            else if (age > 45 && age <= 60)
+                ageGroups.age45to60++;
+            else
+                ageGroups.over60++;
+        });
+        return ageGroups;
+    }
 };
 exports.ReportsService = ReportsService;
 exports.ReportsService = ReportsService = __decorate([
-    (0, common_1.Injectable)()
+    (0, common_1.Injectable)(),
+    __param(0, (0, typeorm_1.InjectDataSource)()),
+    __metadata("design:paramtypes", [typeorm_2.DataSource])
 ], ReportsService);
 //# sourceMappingURL=reports.service.js.map
