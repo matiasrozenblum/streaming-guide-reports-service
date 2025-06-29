@@ -10,7 +10,6 @@ export class GenerateReportDto {
   to: string;
   channelId?: number;
   programId?: number;
-  toEmail?: string;
 }
 
 @ApiTags('reports')
@@ -19,12 +18,11 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   @Post('generate')
-  @ApiOperation({ summary: 'Generate a report' })
+  @ApiOperation({ summary: 'Generate a report (returns file, never sends email)' })
   @ApiBody({ type: GenerateReportDto })
   @ApiResponse({ status: 200, description: 'Report generated successfully' })
   async generateReport(@Body() request: GenerateReportDto, @Res() res: Response) {
     const result = await this.reportsService.generateReport(request);
-    
     if (request.format === 'csv') {
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="${request.type}_report_${request.from}_to_${request.to}.csv"`);
@@ -32,7 +30,6 @@ export class ReportsController {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${request.type}_report_${request.from}_to_${request.to}.pdf"`);
     }
-    
     res.send(result);
   }
 

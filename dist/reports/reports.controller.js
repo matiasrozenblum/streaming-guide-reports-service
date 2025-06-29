@@ -49,7 +49,7 @@ let ReportsController = class ReportsController {
 exports.ReportsController = ReportsController;
 __decorate([
     (0, common_1.Post)('generate'),
-    (0, swagger_1.ApiOperation)({ summary: 'Generate a report' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Generate a report (returns file, never sends email)' }),
     (0, swagger_1.ApiBody)({ type: GenerateReportDto }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Report generated successfully' }),
     __param(0, (0, common_1.Body)()),

@@ -7,7 +7,6 @@ export declare class GenerateReportDto {
     to: string;
     channelId?: number;
     programId?: number;
-    toEmail?: string;
 }
 export declare class ReportsController {
     private readonly reportsService;
