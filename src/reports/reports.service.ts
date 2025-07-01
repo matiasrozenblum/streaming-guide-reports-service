@@ -559,4 +559,84 @@ export class ReportsService {
 
     return ageGroups;
   }
+
+  async getTopChannels({ metric, from, to, limit }: { metric: 'subscriptions' | 'youtube_clicks', from: string, to: string, limit: number }) {
+    if (metric === 'subscriptions') {
+      // Top channels by subscriptions from DB
+      const results = await this.dataSource
+        .createQueryBuilder('channel', 'channel')
+        .leftJoin('channel.programs', 'program')
+        .leftJoin('program.subscriptions', 'subscription')
+        .select('channel.id', 'id')
+        .addSelect('channel.name', 'name')
+        .addSelect('COUNT(subscription.id)', 'count')
+        .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('subscription.isActive = :isActive', { isActive: true })
+        .groupBy('channel.id')
+        .addGroupBy('channel.name')
+        .orderBy('count', 'DESC')
+        .limit(limit)
+        .getRawMany();
+      return results;
+    } else if (metric === 'youtube_clicks') {
+      // Top channels by YouTube clicks from PostHog (aggregate live + deferred)
+      const [live, deferred] = await Promise.all([
+        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
+        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+      ]);
+      // Aggregate by channel name
+      const map = new Map();
+      for (const row of [...live, ...deferred]) {
+        const key = row.properties.channel_name || 'unknown';
+        if (!map.has(key)) map.set(key, { name: key, count: 0 });
+        map.get(key).count += 1;
+      }
+      return Array.from(map.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+    }
+    return [];
+  }
+
+  async getTopPrograms({ metric, from, to, limit }: { metric: 'subscriptions' | 'youtube_clicks', from: string, to: string, limit: number }) {
+    if (metric === 'subscriptions') {
+      // Top programs by subscriptions from DB
+      const results = await this.dataSource
+        .createQueryBuilder('program', 'program')
+        .leftJoin('program.subscriptions', 'subscription')
+        .leftJoin('program.channel', 'channel')
+        .select('program.id', 'id')
+        .addSelect('program.name', 'name')
+        .addSelect('channel.name', 'channelName')
+        .addSelect('COUNT(subscription.id)', 'count')
+        .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('subscription.isActive = :isActive', { isActive: true })
+        .groupBy('program.id')
+        .addGroupBy('program.name')
+        .addGroupBy('channel.name')
+        .orderBy('count', 'DESC')
+        .limit(limit)
+        .getRawMany();
+      return results;
+    } else if (metric === 'youtube_clicks') {
+      // Top programs by YouTube clicks from PostHog (aggregate live + deferred)
+      const [live, deferred] = await Promise.all([
+        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
+        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+      ]);
+      // Aggregate by program name
+      const map = new Map();
+      for (const row of [...live, ...deferred]) {
+        const key = row.properties.program_name || 'unknown';
+        if (!map.has(key)) map.set(key, { name: key, count: 0 });
+        map.get(key).count += 1;
+      }
+      return Array.from(map.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+    }
+    return [];
+  }
 } 
