@@ -2,6 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, ManyToMan
 import { Channel } from '../channels/channels.entity';
 import { Schedule } from '../schedules/schedules.entity';
 import { Panelist } from '../panelists/panelists.entity';
+import { UserSubscription } from '../users/user-subscription.entity';
 
 @Entity()
 export class Program {
@@ -17,6 +18,9 @@ export class Program {
   @ManyToOne(() => Channel, (channel) => channel.programs, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'channel_id' })
   channel: Channel;
+
+  @OneToMany(() => UserSubscription, (subscription) => subscription.program, { cascade: true, onDelete: 'CASCADE' })
+  subscriptions: UserSubscription[];
 
   @OneToMany(() => Schedule, (schedule) => schedule.program, { cascade: true, onDelete: 'CASCADE' })
   schedules: Schedule[];
