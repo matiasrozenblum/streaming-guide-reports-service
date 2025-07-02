@@ -13,4 +13,6 @@ export declare class ReportsController {
     constructor(reportsService: ReportsService);
     generateReport(request: GenerateReportDto, res: Response): Promise<void>;
     downloadWeeklyReport(res: Response, from: string, to: string, channelId?: string): Promise<void>;
+    getTopChannels(metric: 'subscriptions' | 'youtube_clicks', from: string, to: string, limit?: string, groupBy?: string): Promise<any[]>;
+    getTopPrograms(metric: 'subscriptions' | 'youtube_clicks', from: string, to: string, limit?: string, groupBy?: string): Promise<any[]>;
 }

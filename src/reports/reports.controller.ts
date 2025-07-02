@@ -59,8 +59,9 @@ export class ReportsController {
     @Query('from') from: string,
     @Query('to') to: string,
     @Query('limit') limit?: string,
+    @Query('groupBy') groupBy?: string,
   ) {
-    return this.reportsService.getTopChannels({ metric, from, to, limit: limit ? parseInt(limit) : 5 });
+    return this.reportsService.getTopChannels({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
   }
 
   @Get('top-programs')
@@ -70,7 +71,8 @@ export class ReportsController {
     @Query('from') from: string,
     @Query('to') to: string,
     @Query('limit') limit?: string,
+    @Query('groupBy') groupBy?: string,
   ) {
-    return this.reportsService.getTopPrograms({ metric, from, to, limit: limit ? parseInt(limit) : 5 });
+    return this.reportsService.getTopPrograms({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
   }
 } 
