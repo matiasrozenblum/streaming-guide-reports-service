@@ -574,10 +574,10 @@ export class ReportsService {
           .addSelect(groupBy === 'gender' ? 'user.gender' : `
             CASE
               WHEN user.birthDate IS NULL THEN 'unknown'
-              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 18 THEN 'under18'
-              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 30 THEN 'age18to30'
-              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 45 THEN 'age30to45'
-              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 60 THEN 'age45to60'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 18 THEN 'under18'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 30 THEN 'age18to30'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 45 THEN 'age30to45'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 60 THEN 'age45to60'
               ELSE 'over60'
             END
           `, 'groupKey')
@@ -585,7 +585,7 @@ export class ReportsService {
           .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
           .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
           .andWhere('subscription.isActive = :isActive', { isActive: true })
-          .groupBy('channel.id, channel.name, groupKey')
+          .groupBy('channel.id, channel.name, "groupKey"')
           .orderBy('COUNT(subscription.id)', 'DESC');
 
         const raw = await qb.getRawMany();
@@ -692,10 +692,10 @@ export class ReportsService {
           .addSelect(groupBy === 'gender' ? 'user.gender' : `
             CASE
               WHEN user.birthDate IS NULL THEN 'unknown'
-              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 18 THEN 'under18'
-              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 30 THEN 'age18to30'
-              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 45 THEN 'age30to45'
-              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 60 THEN 'age45to60'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 18 THEN 'under18'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 30 THEN 'age18to30'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 45 THEN 'age30to45'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 60 THEN 'age45to60'
               ELSE 'over60'
             END
           `, 'groupKey')
@@ -703,7 +703,7 @@ export class ReportsService {
           .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
           .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
           .andWhere('subscription.isActive = :isActive', { isActive: true })
-          .groupBy('program.id, program.name, channel.name, groupKey')
+          .groupBy('program.id, program.name, channel.name, "groupKey"')
           .orderBy('COUNT(subscription.id)', 'DESC');
 
         const raw = await qb.getRawMany();
