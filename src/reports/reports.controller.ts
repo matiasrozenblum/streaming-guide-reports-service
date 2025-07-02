@@ -51,4 +51,28 @@ export class ReportsController {
     res.setHeader('Content-Disposition', `attachment; filename="weekly_report_${from}_to_${to}.pdf"`);
     res.send(result);
   }
+
+  @Get('top-channels')
+  @ApiOperation({ summary: 'Get top channels by subscriptions or YouTube clicks' })
+  async getTopChannels(
+    @Query('metric') metric: 'subscriptions' | 'youtube_clicks',
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('limit') limit?: string,
+    @Query('groupBy') groupBy?: string,
+  ) {
+    return this.reportsService.getTopChannels({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
+  }
+
+  @Get('top-programs')
+  @ApiOperation({ summary: 'Get top programs by subscriptions or YouTube clicks' })
+  async getTopPrograms(
+    @Query('metric') metric: 'subscriptions' | 'youtube_clicks',
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('limit') limit?: string,
+    @Query('groupBy') groupBy?: string,
+  ) {
+    return this.reportsService.getTopPrograms({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
+  }
 } 

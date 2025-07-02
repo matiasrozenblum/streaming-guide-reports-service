@@ -508,6 +508,249 @@ let ReportsService = class ReportsService {
         });
         return ageGroups;
     }
+    async getTopChannels({ metric, from, to, limit, groupBy }) {
+        if (groupBy === 'gender' || groupBy === 'age') {
+            if (metric === 'subscriptions') {
+                const qb = this.dataSource
+                    .createQueryBuilder('channel', 'channel')
+                    .leftJoin('channel.programs', 'program')
+                    .leftJoin('program.subscriptions', 'subscription')
+                    .leftJoin('subscription.user', 'user')
+                    .select('channel.id', 'id')
+                    .addSelect('channel.name', 'name')
+                    .addSelect(groupBy === 'gender' ? 'user.gender' : `
+            CASE
+              WHEN user.birthDate IS NULL THEN 'unknown'
+              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 18 THEN 'under18'
+              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 30 THEN 'age18to30'
+              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 45 THEN 'age30to45'
+              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 60 THEN 'age45to60'
+              ELSE 'over60'
+            END
+          `, 'groupKey')
+                    .addSelect('COUNT(subscription.id)', 'count')
+                    .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+                    .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+                    .andWhere('subscription.isActive = :isActive', { isActive: true })
+                    .groupBy('channel.id, channel.name, groupKey')
+                    .orderBy('COUNT(subscription.id)', 'DESC');
+                const raw = await qb.getRawMany();
+                const map = new Map();
+                for (const row of raw) {
+                    if (!map.has(row.id)) {
+                        map.set(row.id, { id: row.id, name: row.name, counts: {} });
+                    }
+                    map.get(row.id).counts[row.groupKey || 'unknown'] = parseInt(row.count, 10);
+                }
+                const arr = Array.from(map.values());
+                arr.sort((a, b) => {
+                    const totalA = Object.values(a.counts).reduce((sum, v) => sum + Number(v), 0);
+                    const totalB = Object.values(b.counts).reduce((sum, v) => sum + Number(v), 0);
+                    return Number(totalB) - Number(totalA);
+                });
+                return arr.slice(0, limit);
+            }
+            else if (metric === 'youtube_clicks') {
+                const [live, deferred] = await Promise.all([
+                    (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
+                    (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+                ]);
+                const map = new Map();
+                for (const row of [...live, ...deferred]) {
+                    const channel = row.properties.channel_name || 'unknown';
+                    let groupKey = 'unknown';
+                    if (groupBy === 'gender') {
+                        groupKey = row.properties.user_gender || 'unknown';
+                    }
+                    else if (groupBy === 'age') {
+                        const age = Number(row.properties.user_age);
+                        if (isNaN(age))
+                            groupKey = 'unknown';
+                        else if (age < 18)
+                            groupKey = 'under18';
+                        else if (age < 30)
+                            groupKey = 'age18to30';
+                        else if (age < 45)
+                            groupKey = 'age30to45';
+                        else if (age < 60)
+                            groupKey = 'age45to60';
+                        else
+                            groupKey = 'over60';
+                    }
+                    if (!map.has(channel))
+                        map.set(channel, { name: channel, counts: {} });
+                    map.get(channel).counts[groupKey] = Number(map.get(channel).counts[groupKey] ?? 0) + 1;
+                }
+                const arr = Array.from(map.values());
+                arr.sort((a, b) => {
+                    const totalA = Object.values(a.counts).reduce((sum, v) => sum + Number(v), 0);
+                    const totalB = Object.values(b.counts).reduce((sum, v) => sum + Number(v), 0);
+                    return Number(totalB) - Number(totalA);
+                });
+                return arr.slice(0, limit);
+            }
+            return [];
+        }
+        if (metric === 'subscriptions') {
+            const results = await this.dataSource
+                .createQueryBuilder('channel', 'channel')
+                .leftJoin('channel.programs', 'program')
+                .leftJoin('program.subscriptions', 'subscription')
+                .select('channel.id', 'id')
+                .addSelect('channel.name', 'name')
+                .addSelect('COUNT(subscription.id)', 'count')
+                .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+                .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+                .andWhere('subscription.isActive = :isActive', { isActive: true })
+                .groupBy('channel.id')
+                .addGroupBy('channel.name')
+                .orderBy('count', 'DESC')
+                .limit(limit)
+                .getRawMany();
+            return results;
+        }
+        else if (metric === 'youtube_clicks') {
+            const [live, deferred] = await Promise.all([
+                (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
+                (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+            ]);
+            const map = new Map();
+            for (const row of [...live, ...deferred]) {
+                const key = row.properties.channel_name || 'unknown';
+                if (!map.has(key))
+                    map.set(key, { name: key, count: 0 });
+                map.get(key).count += 1;
+            }
+            return Array.from(map.values())
+                .sort((a, b) => b.count - a.count)
+                .slice(0, limit);
+        }
+        return [];
+    }
+    async getTopPrograms({ metric, from, to, limit, groupBy }) {
+        if (groupBy === 'gender' || groupBy === 'age') {
+            if (metric === 'subscriptions') {
+                const qb = this.dataSource
+                    .createQueryBuilder('program', 'program')
+                    .leftJoin('program.subscriptions', 'subscription')
+                    .leftJoin('program.channel', 'channel')
+                    .leftJoin('subscription.user', 'user')
+                    .select('program.id', 'id')
+                    .addSelect('program.name', 'name')
+                    .addSelect('channel.name', 'channelName')
+                    .addSelect(groupBy === 'gender' ? 'user.gender' : `
+            CASE
+              WHEN user.birthDate IS NULL THEN 'unknown'
+              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 18 THEN 'under18'
+              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 30 THEN 'age18to30'
+              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 45 THEN 'age30to45'
+              WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 60 THEN 'age45to60'
+              ELSE 'over60'
+            END
+          `, 'groupKey')
+                    .addSelect('COUNT(subscription.id)', 'count')
+                    .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+                    .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+                    .andWhere('subscription.isActive = :isActive', { isActive: true })
+                    .groupBy('program.id, program.name, channel.name, groupKey')
+                    .orderBy('COUNT(subscription.id)', 'DESC');
+                const raw = await qb.getRawMany();
+                const map = new Map();
+                for (const row of raw) {
+                    if (!map.has(row.id)) {
+                        map.set(row.id, { id: row.id, name: row.name, channelName: row.channelName, counts: {} });
+                    }
+                    map.get(row.id).counts[row.groupKey || 'unknown'] = parseInt(row.count, 10);
+                }
+                const arr = Array.from(map.values());
+                arr.sort((a, b) => {
+                    const totalA = Object.values(a.counts).reduce((sum, v) => sum + Number(v), 0);
+                    const totalB = Object.values(b.counts).reduce((sum, v) => sum + Number(v), 0);
+                    return Number(totalB) - Number(totalA);
+                });
+                return arr.slice(0, limit);
+            }
+            else if (metric === 'youtube_clicks') {
+                const [live, deferred] = await Promise.all([
+                    (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
+                    (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+                ]);
+                const map = new Map();
+                for (const row of [...live, ...deferred]) {
+                    const program = row.properties.program_name || 'unknown';
+                    const channel = row.properties.channel_name || 'unknown';
+                    const key = `${program}|||${channel}`;
+                    let groupKey = 'unknown';
+                    if (groupBy === 'gender') {
+                        groupKey = row.properties.user_gender || 'unknown';
+                    }
+                    else if (groupBy === 'age') {
+                        const age = Number(row.properties.user_age);
+                        if (isNaN(age))
+                            groupKey = 'unknown';
+                        else if (age < 18)
+                            groupKey = 'under18';
+                        else if (age < 30)
+                            groupKey = 'age18to30';
+                        else if (age < 45)
+                            groupKey = 'age30to45';
+                        else if (age < 60)
+                            groupKey = 'age45to60';
+                        else
+                            groupKey = 'over60';
+                    }
+                    if (!map.has(key))
+                        map.set(key, { name: program, channelName: channel, counts: {} });
+                    map.get(key).counts[groupKey] = (map.get(key).counts[groupKey] || 0) + 1;
+                }
+                const arr = Array.from(map.values());
+                arr.sort((a, b) => {
+                    const totalA = Object.values(a.counts).reduce((sum, v) => sum + Number(v), 0);
+                    const totalB = Object.values(b.counts).reduce((sum, v) => sum + Number(v), 0);
+                    return Number(totalB) - Number(totalA);
+                });
+                return arr.slice(0, limit);
+            }
+            return [];
+        }
+        if (metric === 'subscriptions') {
+            const results = await this.dataSource
+                .createQueryBuilder('program', 'program')
+                .leftJoin('program.subscriptions', 'subscription')
+                .leftJoin('program.channel', 'channel')
+                .select('program.id', 'id')
+                .addSelect('program.name', 'name')
+                .addSelect('channel.name', 'channelName')
+                .addSelect('COUNT(subscription.id)', 'count')
+                .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+                .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+                .andWhere('subscription.isActive = :isActive', { isActive: true })
+                .groupBy('program.id')
+                .addGroupBy('program.name')
+                .addGroupBy('channel.name')
+                .orderBy('count', 'DESC')
+                .limit(limit)
+                .getRawMany();
+            return results;
+        }
+        else if (metric === 'youtube_clicks') {
+            const [live, deferred] = await Promise.all([
+                (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
+                (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+            ]);
+            const map = new Map();
+            for (const row of [...live, ...deferred]) {
+                const key = row.properties.program_name || 'unknown';
+                if (!map.has(key))
+                    map.set(key, { name: key, count: 0 });
+                map.get(key).count += 1;
+            }
+            return Array.from(map.values())
+                .sort((a, b) => b.count - a.count)
+                .slice(0, limit);
+        }
+        return [];
+    }
 };
 exports.ReportsService = ReportsService;
 exports.ReportsService = ReportsService = __decorate([
