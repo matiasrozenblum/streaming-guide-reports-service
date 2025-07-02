@@ -1,0 +1,17 @@
+name: Check Changelog
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+    branches:
+      - develop
+      - master
+
+jobs:
+  check-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if Changelog is updated
+        uses: tarides/changelog-check-action@v2
+        with:
+          changelog: CHANGELOG.md

@@ -45,6 +45,12 @@ let ReportsController = class ReportsController {
         res.setHeader('Content-Disposition', `attachment; filename="weekly_report_${from}_to_${to}.pdf"`);
         res.send(result);
     }
+    async getTopChannels(metric, from, to, limit, groupBy) {
+        return this.reportsService.getTopChannels({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
+    }
+    async getTopPrograms(metric, from, to, limit, groupBy) {
+        return this.reportsService.getTopPrograms({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
+    }
 };
 exports.ReportsController = ReportsController;
 __decorate([
@@ -69,6 +75,30 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, String, String]),
     __metadata("design:returntype", Promise)
 ], ReportsController.prototype, "downloadWeeklyReport", null);
+__decorate([
+    (0, common_1.Get)('top-channels'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get top channels by subscriptions or YouTube clicks' }),
+    __param(0, (0, common_1.Query)('metric')),
+    __param(1, (0, common_1.Query)('from')),
+    __param(2, (0, common_1.Query)('to')),
+    __param(3, (0, common_1.Query)('limit')),
+    __param(4, (0, common_1.Query)('groupBy')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String]),
+    __metadata("design:returntype", Promise)
+], ReportsController.prototype, "getTopChannels", null);
+__decorate([
+    (0, common_1.Get)('top-programs'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get top programs by subscriptions or YouTube clicks' }),
+    __param(0, (0, common_1.Query)('metric')),
+    __param(1, (0, common_1.Query)('from')),
+    __param(2, (0, common_1.Query)('to')),
+    __param(3, (0, common_1.Query)('limit')),
+    __param(4, (0, common_1.Query)('groupBy')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String]),
+    __metadata("design:returntype", Promise)
+], ReportsController.prototype, "getTopPrograms", null);
 exports.ReportsController = ReportsController = __decorate([
     (0, swagger_1.ApiTags)('reports'),
     (0, common_1.Controller)('reports'),
