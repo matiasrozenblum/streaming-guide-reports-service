@@ -571,7 +571,12 @@ export class ReportsService {
           .leftJoin('subscription.user', 'user')
           .select('channel.id', 'id')
           .addSelect('channel.name', 'name')
-          .addSelect(groupBy === 'gender' ? 'user.gender' : `
+          .addSelect(groupBy === 'gender' ? `
+            CASE
+              WHEN user.gender IS NULL THEN 'unknown'
+              ELSE user.gender
+            END
+          ` : `
             CASE
               WHEN user.birthDate IS NULL THEN 'unknown'
               WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 18 THEN 'under18'
@@ -689,7 +694,12 @@ export class ReportsService {
           .select('program.id', 'id')
           .addSelect('program.name', 'name')
           .addSelect('channel.name', 'channelName')
-          .addSelect(groupBy === 'gender' ? 'user.gender' : `
+          .addSelect(groupBy === 'gender' ? `
+            CASE
+              WHEN user.gender IS NULL THEN 'unknown'
+              ELSE user.gender
+            END
+          ` : `
             CASE
               WHEN user.birthDate IS NULL THEN 'unknown'
               WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 18 THEN 'under18'
