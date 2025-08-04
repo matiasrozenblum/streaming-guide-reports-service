@@ -17,6 +17,13 @@ y este proyecto utiliza [SemVer](https://semver.org/lang/es/).
 
 ---
 
+## [1.1.0] - 2025-08-03
+
+### Added
+- Added user origin field
+- Added channel is_visible field
+- Added gender unknown category
+
 ## [1.0.0] - 2025-07-01
 
 ### Changed
