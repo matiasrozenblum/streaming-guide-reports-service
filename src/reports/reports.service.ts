@@ -20,7 +20,7 @@ export class ReportsService {
   ) {}
 
   async generateReport(request: {
-    type: 'users' | 'subscriptions' | 'weekly-summary';
+    type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary';
     format: 'csv' | 'pdf';
     from: string;
     to: string;
@@ -39,6 +39,29 @@ export class ReportsService {
           to: request.to,
           channelId: request.channelId,
         });
+      case 'monthly-summary':
+        return this.generatePeriodicReport({
+          from: request.from,
+          to: request.to,
+          channelId: request.channelId,
+          period: 'monthly',
+        });
+      case 'quarterly-summary':
+        return this.generatePeriodicReport({
+          from: request.from,
+          to: request.to,
+          channelId: request.channelId,
+          period: 'quarterly',
+        });
+      case 'yearly-summary':
+        return this.generatePeriodicReport({
+          from: request.from,
+          to: request.to,
+          channelId: request.channelId,
+          period: 'yearly',
+        });
+      case 'channel-summary':
+        return this.generateChannelReport(request.from, request.to, request.format, request.channelId);
       default:
         throw new Error(`Unknown report type: ${request.type}`);
     }
@@ -807,5 +830,263 @@ export class ReportsService {
         .slice(0, limit);
     }
     return [];
+  }
+
+  async generatePeriodicReport(params: { 
+    from: string; 
+    to: string; 
+    channelId?: number;
+    period: 'monthly' | 'quarterly' | 'yearly';
+  }): Promise<Buffer> {
+    const { from, to, channelId, period } = params;
+    
+    // Fetch data similar to weekly report but with different time ranges
+    const [
+      totalNewUsers,
+      usersByGender,
+      totalNewSubscriptions,
+      subscriptionsByGender,
+      subscriptionsByAge,
+      topChannelsBySubscriptions,
+      topProgramsBySubscriptions,
+      youtubeClicksLive,
+      youtubeClicksDeferred
+    ] = await Promise.all([
+      // Total new users
+      this.dataSource
+        .createQueryBuilder(User, 'user')
+        .where('user.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('user.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .getCount(),
+
+      // Users by gender
+      this.dataSource
+        .createQueryBuilder(User, 'user')
+        .select('user.gender', 'gender')
+        .addSelect('COUNT(*)', 'count')
+        .where('user.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('user.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('user.gender IS NOT NULL')
+        .groupBy('user.gender')
+        .getRawMany(),
+
+      // Total new subscriptions
+      this.dataSource
+        .createQueryBuilder(UserSubscription, 'subscription')
+        .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('subscription.isActive = :isActive', { isActive: true })
+        .getCount(),
+
+      // Subscriptions by gender
+      this.dataSource
+        .createQueryBuilder(UserSubscription, 'subscription')
+        .leftJoin('subscription.user', 'user')
+        .select('user.gender', 'gender')
+        .addSelect('COUNT(*)', 'count')
+        .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('subscription.isActive = :isActive', { isActive: true })
+        .andWhere('user.gender IS NOT NULL')
+        .groupBy('user.gender')
+        .getRawMany(),
+
+      // Subscriptions by age
+      this.getSubscriptionsByAge(from, to),
+
+      // Top channels by subscriptions
+      this.dataSource
+        .createQueryBuilder(UserSubscription, 'subscription')
+        .leftJoin('subscription.program', 'program')
+        .leftJoin('program.channel', 'channel')
+        .select('channel.id', 'channelId')
+        .addSelect('channel.name', 'channelName')
+        .addSelect('COUNT(*)', 'count')
+        .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('subscription.isActive = :isActive', { isActive: true })
+        .groupBy('channel.id, channel.name')
+        .orderBy('count', 'DESC')
+        .limit(5)
+        .getRawMany(),
+
+      // Top programs by subscriptions
+      this.dataSource
+        .createQueryBuilder(UserSubscription, 'subscription')
+        .leftJoin('subscription.program', 'program')
+        .leftJoin('program.channel', 'channel')
+        .select('program.id', 'programId')
+        .addSelect('program.name', 'programName')
+        .addSelect('channel.name', 'channelName')
+        .addSelect('COUNT(*)', 'count')
+        .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('subscription.isActive = :isActive', { isActive: true })
+        .groupBy('program.id, program.name, channel.name')
+        .orderBy('count', 'DESC')
+        .limit(5)
+        .getRawMany(),
+
+      // YouTube clicks (live)
+      fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
+      // YouTube clicks (deferred)
+      fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+    ]);
+
+    // Convert arrays to objects for compatibility
+    const usersByGenderObj = usersByGender.reduce((acc, item) => {
+      acc[item.gender] = parseInt(item.count);
+      return acc;
+    }, {} as Record<string, number>);
+
+    const subscriptionsByGenderObj = subscriptionsByGender.reduce((acc, item) => {
+      acc[item.gender] = parseInt(item.count);
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Aggregate YouTube clicks
+    const youtubeClicksLiveAggregated = await aggregateClicksBy(youtubeClicksLive, 'channel_name');
+    const youtubeClicksDeferredAggregated = await aggregateClicksBy(youtubeClicksDeferred, 'channel_name');
+
+    const reportData: WeeklyReportData = {
+      from,
+      to,
+      totalNewUsers,
+      usersByGender: usersByGenderObj,
+      totalNewSubscriptions,
+      subscriptionsByGender: subscriptionsByGenderObj,
+      subscriptionsByAge,
+      subscriptionsByProgram: [],
+      subscriptionsByChannel: [],
+      topChannelsBySubscriptions,
+      topChannelsByClicksLive: Object.entries(youtubeClicksLiveAggregated).map(([name, count]) => ({ channelName: name, count })),
+      topChannelsByClicksDeferred: Object.entries(youtubeClicksDeferredAggregated).map(([name, count]) => ({ channelName: name, count })),
+      topProgramsBySubscriptions,
+      topProgramsByClicksLive: [],
+      topProgramsByClicksDeferred: [],
+      rankingChanges: [],
+    };
+
+    return generateWeeklyReportPdf({ data: reportData, charts: {} });
+  }
+
+  async generateChannelReport(from: string, to: string, format: 'csv' | 'pdf', channelId: number): Promise<Buffer | string> {
+    // Fetch channel-specific data
+    const channel = await this.dataSource
+      .createQueryBuilder(Channel, 'channel')
+      .where('channel.id = :channelId', { channelId })
+      .getOne();
+
+    if (!channel) {
+      throw new Error('Channel not found');
+    }
+
+    // Fetch subscriptions for this channel
+    const subscriptions = await this.dataSource
+      .createQueryBuilder(UserSubscription, 'subscription')
+      .leftJoinAndSelect('subscription.user', 'user')
+      .leftJoinAndSelect('subscription.program', 'program')
+      .leftJoinAndSelect('program.channel', 'channel')
+      .where('channel.id = :channelId', { channelId })
+      .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+      .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+      .andWhere('subscription.isActive = :isActive', { isActive: true })
+      .orderBy('subscription.createdAt', 'DESC')
+      .getMany();
+
+    const formattedSubscriptions = subscriptions.map(sub => ({
+      id: sub.id,
+      userFirstName: sub.user?.firstName || 'N/A',
+      userLastName: sub.user?.lastName || 'N/A',
+      userEmail: sub.user?.email || 'N/A',
+      programName: sub.program?.name || 'N/A',
+      createdAt: dayjs(sub.createdAt).format('YYYY-MM-DD'),
+    }));
+
+    if (format === 'csv') {
+      return new Promise((resolve, reject) => {
+        stringify(formattedSubscriptions, {
+          header: true,
+          columns: {
+            id: 'ID',
+            userFirstName: 'Nombre',
+            userLastName: 'Apellido',
+            userEmail: 'Email',
+            programName: 'Programa',
+            createdAt: 'Fecha de Suscripción',
+          },
+        }, (err, output) => {
+          if (err) reject(err);
+          else resolve(output);
+        });
+      });
+    } else {
+      const html = this.buildChannelReportHtml(formattedSubscriptions, channel, from, to);
+      return await this.htmlToPdfBuffer(html);
+    }
+  }
+
+  private buildChannelReportHtml(subscriptions: any[], channel: any, from: string, to: string): string {
+    const totalSubscriptions = subscriptions.length;
+    const uniqueUsers = new Set(subscriptions.map(s => s.userEmail)).size;
+    const uniquePrograms = new Set(subscriptions.map(s => s.programName)).size;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Reporte del Canal ${channel.name}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .summary { margin-bottom: 30px; }
+          .summary-item { margin: 10px 0; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+          th { background-color: #f2f2f2; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Reporte del Canal: ${channel.name}</h1>
+          <p>Período: ${from} a ${to}</p>
+        </div>
+        
+        <div class="summary">
+          <h2>Resumen</h2>
+          <div class="summary-item"><strong>Total de Suscripciones:</strong> ${totalSubscriptions}</div>
+          <div class="summary-item"><strong>Usuarios Únicos:</strong> ${uniqueUsers}</div>
+          <div class="summary-item"><strong>Programas Únicos:</strong> ${uniquePrograms}</div>
+        </div>
+
+        <h2>Detalle de Suscripciones</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Apellido</th>
+              <th>Email</th>
+              <th>Programa</th>
+              <th>Fecha de Suscripción</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${subscriptions.map(sub => `
+              <tr>
+                <td>${sub.id}</td>
+                <td>${sub.userFirstName}</td>
+                <td>${sub.userLastName}</td>
+                <td>${sub.userEmail}</td>
+                <td>${sub.programName}</td>
+                <td>${sub.createdAt}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
   }
 } 
