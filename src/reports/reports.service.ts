@@ -6,6 +6,7 @@ import { renderChart, barChartConfig, pieChartConfig } from './chart.util';
 import { generateWeeklyReportPdf } from './weekly-report-pdf.util';
 import { WeeklyReportData } from './weekly-report.service';
 import { fetchYouTubeClicks, aggregateClicksBy } from './posthog.util';
+import { getBrowser } from './puppeteer.util';
 import * as dayjs from 'dayjs';
 import { User } from '../users/users.entity';
 import { UserSubscription } from '../users/user-subscription.entity';
@@ -543,16 +544,34 @@ export class ReportsService {
   }
 
   private async htmlToPdfBuffer(html: string): Promise<Buffer> {
-    const puppeteer = require('puppeteer');
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-    await browser.close();
-    return pdfBuffer;
+    let page = null;
+    try {
+      const browser = await getBrowser();
+      page = await browser.newPage();
+      
+      // Set a longer timeout for page operations
+      page.setDefaultTimeout(60000);
+      
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      const pdfBuffer = await page.pdf({ 
+        format: 'A4', 
+        printBackground: true,
+        timeout: 60000 
+      });
+      
+      return Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    } catch (error) {
+      console.error('Error generating PDF from HTML:', error);
+      throw new Error(`Failed to generate PDF from HTML: ${error.message}`);
+    } finally {
+      if (page) {
+        try {
+          await page.close();
+        } catch (error) {
+          console.warn('Error closing page:', error);
+        }
+      }
+    }
   }
 
   private async getSubscriptionsByAge(from: string, to: string) {
