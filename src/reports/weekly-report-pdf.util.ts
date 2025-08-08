@@ -74,10 +74,33 @@ export async function generateWeeklyReportPdf({
       </body>
     </html>
   `;
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-  const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-  await browser.close();
-  return Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+  
+  let page = null;
+  try {
+    const browser = await getBrowser();
+    page = await browser.newPage();
+    
+    // Set a longer timeout for page operations
+    page.setDefaultTimeout(60000);
+    
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({ 
+      format: 'A4', 
+      printBackground: true,
+      timeout: 60000 
+    });
+    
+    return Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    throw new Error(`Failed to generate PDF: ${error.message}`);
+  } finally {
+    if (page) {
+      try {
+        await page.close();
+      } catch (error) {
+        console.warn('Error closing page:', error);
+      }
+    }
+  }
 } 
