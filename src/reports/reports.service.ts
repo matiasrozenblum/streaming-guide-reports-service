@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { stringify } from 'csv-stringify';
 import { renderChart, barChartConfig, pieChartConfig } from './chart.util';
-import { generateWeeklyReportPdf } from './weekly-report-pdf.util';
+import { generateWeeklyReportPdf, generatePeriodicReportPdf } from './weekly-report-pdf.util';
 import { WeeklyReportData } from './weekly-report.service';
 import { fetchYouTubeClicks, aggregateClicksBy } from './posthog.util';
 import { getBrowser } from './puppeteer.util';
@@ -986,7 +986,62 @@ export class ReportsService {
       rankingChanges: [],
     };
 
-    return generateWeeklyReportPdf({ data: reportData, charts: {} });
+    // Generate charts
+    const charts = {
+      usersByGender: (await renderChart(pieChartConfig({
+        labels: Object.keys(reportData.usersByGender),
+        data: Object.values(reportData.usersByGender),
+        title: 'Usuarios nuevos por género',
+      }))).toString('base64'),
+      subsByGender: (await renderChart(pieChartConfig({
+        labels: Object.keys(reportData.subscriptionsByGender),
+        data: Object.values(reportData.subscriptionsByGender),
+        title: 'Suscripciones nuevas por género',
+      }))).toString('base64'),
+      subsByAge: (await renderChart(pieChartConfig({
+        labels: Object.keys(reportData.subscriptionsByAge),
+        data: Object.values(reportData.subscriptionsByAge),
+        title: 'Suscripciones nuevas por grupo de edad',
+      }))).toString('base64'),
+      topChannelsBySubs: (await renderChart(barChartConfig({
+        labels: reportData.topChannelsBySubscriptions.map(c => c.channelName),
+        datasets: [{ label: 'Suscripciones', data: reportData.topChannelsBySubscriptions.map(c => c.count) }],
+        title: 'Top 5 canales por suscripciones',
+        yLabel: 'Suscripciones',
+      }))).toString('base64'),
+      topChannelsByClicksLive: (await renderChart(barChartConfig({
+        labels: reportData.topChannelsByClicksLive.map(c => c.channelName),
+        datasets: [{ label: 'Clicks en vivo', data: reportData.topChannelsByClicksLive.map(c => c.count) }],
+        title: 'Top 5 canales por clicks en YouTube (en vivo)',
+        yLabel: 'Clicks',
+      }))).toString('base64'),
+      topChannelsByClicksDeferred: (await renderChart(barChartConfig({
+        labels: reportData.topChannelsByClicksDeferred.map(c => c.channelName),
+        datasets: [{ label: 'Clicks diferidos', data: reportData.topChannelsByClicksDeferred.map(c => c.count) }],
+        title: 'Top 5 canales por clicks en YouTube (diferido)',
+        yLabel: 'Clicks',
+      }))).toString('base64'),
+      topProgramsBySubs: (await renderChart(barChartConfig({
+        labels: reportData.topProgramsBySubscriptions.map(p => p.programName),
+        datasets: [{ label: 'Suscripciones', data: reportData.topProgramsBySubscriptions.map(p => p.count) }],
+        title: 'Top 5 programas por suscripciones',
+        yLabel: 'Suscripciones',
+      }))).toString('base64'),
+      topProgramsByClicksLive: (await renderChart(barChartConfig({
+        labels: reportData.topProgramsByClicksLive.map(p => p.programName),
+        datasets: [{ label: 'Clicks en vivo', data: reportData.topProgramsByClicksLive.map(p => p.count) }],
+        title: 'Top 5 programas por clicks en YouTube (en vivo)',
+        yLabel: 'Clicks',
+      }))).toString('base64'),
+      topProgramsByClicksDeferred: (await renderChart(barChartConfig({
+        labels: reportData.topProgramsByClicksDeferred.map(p => p.programName),
+        datasets: [{ label: 'Clicks diferidos', data: reportData.topProgramsByClicksDeferred.map(p => p.count) }],
+        title: 'Top 5 programas por clicks en YouTube (diferido)',
+        yLabel: 'Clicks',
+      }))).toString('base64'),
+    };
+
+    return generatePeriodicReportPdf({ data: reportData, charts, period });
   }
 
   async generateChannelReport(from: string, to: string, format: 'csv' | 'pdf', channelId: number): Promise<Buffer | string> {
