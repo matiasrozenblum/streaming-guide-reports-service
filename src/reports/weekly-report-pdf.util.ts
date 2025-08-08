@@ -10,6 +10,28 @@ export async function generateWeeklyReportPdf({
   data: WeeklyReportData;
   charts: Record<string, string>;
 }): Promise<Buffer> {
+  return generatePeriodicReportPdf({ data, charts, period: 'weekly' });
+}
+
+export async function generatePeriodicReportPdf({
+  data,
+  charts,
+  period,
+}: {
+  data: WeeklyReportData;
+  charts: Record<string, string>;
+  period: 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+}): Promise<Buffer> {
+  const getReportTitle = (period: string) => {
+    switch (period) {
+      case 'weekly': return 'Reporte Semanal Unificado';
+      case 'monthly': return 'Reporte Mensual Unificado';
+      case 'quarterly': return 'Reporte Trimestral Unificado';
+      case 'yearly': return 'Reporte Anual Unificado';
+      default: return 'Reporte Unificado';
+    }
+  };
+
   const html = `
     <html>
       <head>
@@ -27,7 +49,7 @@ export async function generateWeeklyReportPdf({
       </head>
       <body>
         <img src="https://laguiadelstreaming.com/img/logo.png" class="logo" alt="Logo" />
-        <h1>Reporte Semanal Unificado</h1>
+        <h1>${getReportTitle(period)}</h1>
         <div class="section">
           <h2>Resumen General</h2>
           <p><b>Período:</b> ${data.from} a ${data.to}</p>
