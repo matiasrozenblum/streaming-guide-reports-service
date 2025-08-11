@@ -21,7 +21,7 @@ export class ReportsService {
   ) {}
 
   async generateReport(request: {
-    type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary';
+    type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary' | 'comprehensive-channel-summary';
     format: 'csv' | 'pdf';
     from: string;
     to: string;
@@ -63,6 +63,8 @@ export class ReportsService {
         });
       case 'channel-summary':
         return this.generateChannelReport(request.from, request.to, request.format, request.channelId);
+      case 'comprehensive-channel-summary':
+        return this.generateComprehensiveChannelReport(request.from, request.to, request.format, request.channelId);
       default:
         throw new Error(`Unknown report type: ${request.type}`);
     }
@@ -1162,5 +1164,271 @@ export class ReportsService {
       </body>
       </html>
     `;
+  }
+
+  async generateComprehensiveChannelReport(from: string, to: string, format: 'csv' | 'pdf', channelId: number): Promise<Buffer | string> {
+    // Fetch channel-specific data
+    const channel = await this.dataSource
+      .createQueryBuilder(Channel, 'channel')
+      .where('channel.id = :channelId', { channelId })
+      .getOne();
+
+    if (!channel) {
+      throw new Error('Channel not found');
+    }
+
+    // Get channel position in top channels by subscriptions
+    const topChannels = await this.getTopChannels({
+      metric: 'subscriptions',
+      from,
+      to,
+      limit: 10, // Get top 10 to see if our channel is in top 5
+      groupBy: 'channel'
+    });
+
+    const channelPosition = topChannels.findIndex(c => c.id === channelId) + 1;
+    const isInTop5 = channelPosition <= 5;
+
+    // Get top 5 channels for the chart
+    const top5Channels = topChannels.slice(0, 5);
+    
+    // If our channel is not in top 5, add it as 6th row
+    if (!isInTop5 && channelPosition > 0) {
+      const channelData = topChannels.find(c => c.id === channelId);
+      if (channelData) {
+        top5Channels.push({
+          ...channelData,
+          name: `${channelData.name} (${channelPosition}º)`
+        });
+      }
+    }
+
+    // Get top 5 programs for this channel
+    const topPrograms = await this.getTopPrograms({
+      metric: 'subscriptions',
+      from,
+      to,
+      limit: 5,
+      groupBy: 'program'
+    });
+
+    // Filter programs to only show those from this channel
+    const channelPrograms = topPrograms.filter(p => p.channelId === channelId);
+
+    // Get subscriptions by gender for this channel
+    const subscriptionsByGender = await this.dataSource
+      .createQueryBuilder(UserSubscription, 'subscription')
+      .leftJoinAndSelect('subscription.user', 'user')
+      .leftJoinAndSelect('subscription.program', 'program')
+      .leftJoinAndSelect('program.channel', 'channel')
+      .select([
+        'user.gender',
+        'COUNT(subscription.id) as count'
+      ])
+      .where('channel.id = :channelId', { channelId })
+      .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+      .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+      .andWhere('subscription.isActive = :isActive', { isActive: true })
+      .groupBy('user.gender')
+      .getRawMany();
+
+    // Get subscriptions by age for this channel
+    const subscriptionsByAge = await this.dataSource
+      .createQueryBuilder(UserSubscription, 'subscription')
+      .leftJoinAndSelect('subscription.user', 'user')
+      .leftJoinAndSelect('subscription.program', 'program')
+      .leftJoinAndSelect('program.channel', 'channel')
+      .select([
+        'CASE ' +
+        'WHEN user.birthDate IS NULL THEN \'unknown\' ' +
+        'WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 18 THEN \'under18\' ' +
+        'WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) BETWEEN 18 AND 30 THEN \'age18to30\' ' +
+        'WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) BETWEEN 31 AND 45 THEN \'age30to45\' ' +
+        'WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) BETWEEN 46 AND 60 THEN \'age45to60\' ' +
+        'ELSE \'over60\' ' +
+        'END as ageGroup',
+        'COUNT(subscription.id) as count'
+      ])
+      .where('channel.id = :channelId', { channelId })
+      .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+      .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+      .andWhere('subscription.isActive = :isActive', { isActive: true })
+      .groupBy('ageGroup')
+      .getRawMany();
+
+    if (format === 'csv') {
+      // For CSV, return a summary with the key metrics
+      const summaryData = [
+        {
+          metric: 'Channel Position',
+          value: channelPosition > 0 ? `${channelPosition}º` : 'Not ranked',
+          channel: channel.name
+        },
+        {
+          metric: 'Total Subscriptions',
+          value: topChannels.find(c => c.id === channelId)?.count || 0,
+          channel: channel.name
+        }
+      ];
+
+      return new Promise((resolve, reject) => {
+        stringify(summaryData, {
+          header: true,
+          columns: {
+            metric: 'Métrica',
+            value: 'Valor',
+            channel: 'Canal'
+          },
+        }, (err, output) => {
+          if (err) reject(err);
+          else resolve(output);
+        });
+      });
+    } else {
+      // For PDF, generate comprehensive HTML
+      const html = this.buildComprehensiveChannelReportHtml({
+        channel,
+        from,
+        to,
+        top5Channels,
+        channelPosition,
+        isInTop5,
+        channelPrograms,
+        subscriptionsByGender,
+        subscriptionsByAge
+      });
+      return await this.htmlToPdfBuffer(html);
+    }
+  }
+
+  private buildComprehensiveChannelReportHtml(data: {
+    channel: any;
+    from: string;
+    to: string;
+    top5Channels: any[];
+    channelPosition: number;
+    isInTop5: boolean;
+    channelPrograms: any[];
+    subscriptionsByGender: any[];
+    subscriptionsByAge: any[];
+  }): string {
+    const { channel, from, to, top5Channels, channelPosition, isInTop5, channelPrograms, subscriptionsByGender, subscriptionsByAge } = data;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Reporte Completo del Canal ${channel.name}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .section { margin-bottom: 30px; }
+          .section h2 { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 5px; }
+          .highlight { background-color: #fef3c7; padding: 10px; border-radius: 5px; margin: 10px 0; }
+          .chart-container { margin: 20px 0; }
+          .bar { 
+            background-color: #3b82f6; 
+            height: 30px; 
+            margin: 5px 0; 
+            display: flex; 
+            align-items: center; 
+            padding-left: 10px; 
+            color: white; 
+            font-weight: bold;
+            border-radius: 3px;
+          }
+          .highlighted-bar { 
+            background-color: #f59e0b; 
+            border: 2px solid #d97706;
+          }
+          .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+          .stat-box { 
+            background-color: #f8fafc; 
+            padding: 15px; 
+            border-radius: 8px; 
+            border-left: 4px solid #2563eb;
+          }
+          .stat-title { font-weight: bold; color: #1e40af; margin-bottom: 10px; }
+          .stat-value { font-size: 24px; color: #1e293b; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Reporte Completo del Canal: ${channel.name}</h1>
+          <p>Período: ${from} a ${to}</p>
+        </div>
+        
+        <div class="section">
+          <h2>Posición del Canal en el Ranking</h2>
+          <div class="highlight">
+            <strong>${channel.name}</strong> está en la <strong>${channelPosition}º posición</strong> por número de suscripciones
+            ${isInTop5 ? 'dentro del top 5' : 'fuera del top 5'}
+          </div>
+          
+          <div class="chart-container">
+            <h3>Top 5 Canales por Suscripciones</h3>
+            ${top5Channels.map((ch, index) => {
+              const isHighlighted = ch.id === channel.id;
+              const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
+              const width = Math.max(20, (ch.count / Math.max(...top5Channels.map(c => c.count))) * 100);
+              return `
+                <div class="${barClass}" style="width: ${width}%">
+                  ${index + 1}º - ${ch.name}: ${ch.count} suscripciones
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Top 5 Programas del Canal</h2>
+          ${channelPrograms.length > 0 ? `
+            <div class="chart-container">
+              ${channelPrograms.map((program, index) => {
+                const width = Math.max(20, (program.count / Math.max(...channelPrograms.map(p => p.count))) * 100);
+                return `
+                  <div class="bar" style="width: ${width}%">
+                    ${index + 1}º - ${program.name}: ${program.count} suscripciones
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          ` : '<p>No hay programas con suscripciones en este período</p>'}
+        </div>
+
+        <div class="section">
+          <h2>Estadísticas Demográficas</h2>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-title">Suscripciones por Género</div>
+              ${subscriptionsByGender.map(item => `
+                <div><strong>${item.gender || 'No especificado'}:</strong> ${item.count}</div>
+              `).join('')}
+            </div>
+            <div class="stat-box">
+              <div class="stat-title">Suscripciones por Edad</div>
+              ${subscriptionsByAge.map(item => {
+                const ageLabel = this.getAgeGroupLabel(item.ageGroup);
+                return `<div><strong>${ageLabel}:</strong> ${item.count}</div>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private getAgeGroupLabel(ageGroup: string): string {
+    switch (ageGroup) {
+      case 'under18': return 'Menos de 18 años';
+      case 'age18to30': return '18-30 años';
+      case 'age30to45': return '31-45 años';
+      case 'age45to60': return '46-60 años';
+      case 'over60': return 'Más de 60 años';
+      case 'unknown': return 'No especificado';
+      default: return ageGroup;
+    }
   }
 } 
