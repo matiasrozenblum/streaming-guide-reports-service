@@ -1127,10 +1127,10 @@ let ReportsService = class ReportsService {
             .select([
             'CASE ' +
                 'WHEN user.birthDate IS NULL THEN \'unknown\' ' +
-                'WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) < 18 THEN \'under18\' ' +
-                'WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) BETWEEN 18 AND 30 THEN \'age18to30\' ' +
-                'WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) BETWEEN 31 AND 45 THEN \'age30to45\' ' +
-                'WHEN TIMESTAMPDIFF(YEAR, user.birthDate, CURDATE()) BETWEEN 46 AND 60 THEN \'age45to60\' ' +
+                'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, user.birthDate)) < 18 THEN \'under18\' ' +
+                'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, user.birthDate)) BETWEEN 18 AND 30 THEN \'age18to30\' ' +
+                'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, user.birthDate)) BETWEEN 31 AND 45 THEN \'age30to45\' ' +
+                'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, user.birthDate)) BETWEEN 46 AND 60 THEN \'age45to60\' ' +
                 'ELSE \'over60\' ' +
                 'END as ageGroup',
             'COUNT(subscription.id) as count'
