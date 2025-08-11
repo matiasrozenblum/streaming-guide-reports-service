@@ -1306,7 +1306,46 @@ export class ReportsService {
     });
 
     // Filter programs to only show those from this channel
-    const channelProgramsByClicks = topProgramsByClicks.filter(p => p.channelId === channelId);
+    // For YouTube clicks, we need to filter by channel name since there's no channelId
+    const channelProgramsByClicks = topProgramsByClicks.filter(p => {
+      if (p.channelName) {
+        return p.channelName === channel.name;
+      }
+      // If no channelName, try to get it from the program data
+      return false; // We'll handle this separately
+    });
+
+    // If no programs found by channel name, try to get programs directly for this channel
+    if (channelProgramsByClicks.length === 0) {
+      const [liveClicks, deferredClicks] = await Promise.all([
+        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
+        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+      ]);
+      
+      // Filter clicks for this specific channel
+      const channelClicks = [...liveClicks, ...deferredClicks].filter(
+        click => click.properties.channel_name === channel.name
+      );
+      
+      // Aggregate by program name
+      const programMap = new Map();
+      for (const click of channelClicks) {
+        const programName = click.properties.program_name || 'unknown';
+        if (!programMap.has(programName)) {
+          programMap.set(programName, { name: programName, count: 0 });
+        }
+        programMap.get(programName).count += 1;
+      }
+      
+      // Convert to array and sort by count
+      const channelProgramsArray = Array.from(programMap.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+      
+      // Replace the empty array
+      channelProgramsByClicks.length = 0;
+      channelProgramsByClicks.push(...channelProgramsArray);
+    }
 
     // Get subscriptions by gender for this channel
     const subscriptionsByGender = await this.dataSource
@@ -1348,6 +1387,28 @@ export class ReportsService {
       .andWhere('subscription.isActive = :isActive', { isActive: true })
       .groupBy('ageGroup')
       .getRawMany();
+
+    // Clean up the age data to ensure no undefined values
+    const cleanSubscriptionsByAge = subscriptionsByAge
+      .filter(item => item.ageGroup && item.ageGroup !== 'undefined')
+      .map(item => ({
+        ageGroup: item.ageGroup || 'unknown',
+        count: parseInt(item.count) || 0
+      }));
+
+    // Clean up gender data as well
+    const cleanSubscriptionsByGender = subscriptionsByGender
+      .filter(item => item.gender !== null && item.gender !== undefined)
+      .map(item => ({
+        gender: item.gender || 'No especificado',
+        count: parseInt(item.count) || 0
+      }));
+
+    // Create age group labels for display
+    const ageGroupLabels = cleanSubscriptionsByAge.map(item => ({
+      ...item,
+      displayLabel: this.getAgeGroupLabel(item.ageGroup)
+    }));
 
     if (format === 'csv') {
       // For CSV, return a summary with the key metrics
@@ -1404,8 +1465,8 @@ export class ReportsService {
         isInTop5ByDeferredClicks,
         channelProgramsBySubscriptions,
         channelProgramsByClicks,
-        subscriptionsByGender,
-        subscriptionsByAge
+        subscriptionsByGender: cleanSubscriptionsByGender,
+        subscriptionsByAge: ageGroupLabels
       });
       return await this.htmlToPdfBuffer(html);
     }
@@ -1602,10 +1663,9 @@ export class ReportsService {
             </div>
             <div class="stat-box">
               <div class="stat-title">Suscripciones por Edad</div>
-              ${subscriptionsByAge.map(item => {
-                const ageLabel = this.getAgeGroupLabel(item.ageGroup);
-                return `<div><strong>${ageLabel}:</strong> ${item.count}</div>`;
-              }).join('')}
+              ${subscriptionsByAge.map(item => `
+                <div><strong>${item.displayLabel}:</strong> ${item.count}</div>
+              `).join('')}
             </div>
           </div>
         </div>

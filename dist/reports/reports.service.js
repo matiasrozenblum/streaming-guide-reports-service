@@ -1177,7 +1177,32 @@ let ReportsService = class ReportsService {
             limit: 5,
             groupBy: 'program'
         });
-        const channelProgramsByClicks = topProgramsByClicks.filter(p => p.channelId === channelId);
+        const channelProgramsByClicks = topProgramsByClicks.filter(p => {
+            if (p.channelName) {
+                return p.channelName === channel.name;
+            }
+            return false;
+        });
+        if (channelProgramsByClicks.length === 0) {
+            const [liveClicks, deferredClicks] = await Promise.all([
+                (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
+                (0, posthog_util_1.fetchYouTubeClicks)({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+            ]);
+            const channelClicks = [...liveClicks, ...deferredClicks].filter(click => click.properties.channel_name === channel.name);
+            const programMap = new Map();
+            for (const click of channelClicks) {
+                const programName = click.properties.program_name || 'unknown';
+                if (!programMap.has(programName)) {
+                    programMap.set(programName, { name: programName, count: 0 });
+                }
+                programMap.get(programName).count += 1;
+            }
+            const channelProgramsArray = Array.from(programMap.values())
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5);
+            channelProgramsByClicks.length = 0;
+            channelProgramsByClicks.push(...channelProgramsArray);
+        }
         const subscriptionsByGender = await this.dataSource
             .createQueryBuilder(user_subscription_entity_1.UserSubscription, 'subscription')
             .leftJoinAndSelect('subscription.user', 'user')
@@ -1215,6 +1240,22 @@ let ReportsService = class ReportsService {
             .andWhere('subscription.isActive = :isActive', { isActive: true })
             .groupBy('ageGroup')
             .getRawMany();
+        const cleanSubscriptionsByAge = subscriptionsByAge
+            .filter(item => item.ageGroup && item.ageGroup !== 'undefined')
+            .map(item => ({
+            ageGroup: item.ageGroup || 'unknown',
+            count: parseInt(item.count) || 0
+        }));
+        const cleanSubscriptionsByGender = subscriptionsByGender
+            .filter(item => item.gender !== null && item.gender !== undefined)
+            .map(item => ({
+            gender: item.gender || 'No especificado',
+            count: parseInt(item.count) || 0
+        }));
+        const ageGroupLabels = cleanSubscriptionsByAge.map(item => ({
+            ...item,
+            displayLabel: this.getAgeGroupLabel(item.ageGroup)
+        }));
         if (format === 'csv') {
             const summaryData = [
                 {
@@ -1270,8 +1311,8 @@ let ReportsService = class ReportsService {
                 isInTop5ByDeferredClicks,
                 channelProgramsBySubscriptions,
                 channelProgramsByClicks,
-                subscriptionsByGender,
-                subscriptionsByAge
+                subscriptionsByGender: cleanSubscriptionsByGender,
+                subscriptionsByAge: ageGroupLabels
             });
             return await this.htmlToPdfBuffer(html);
         }
@@ -1432,10 +1473,9 @@ let ReportsService = class ReportsService {
             </div>
             <div class="stat-box">
               <div class="stat-title">Suscripciones por Edad</div>
-              ${subscriptionsByAge.map(item => {
-            const ageLabel = this.getAgeGroupLabel(item.ageGroup);
-            return `<div><strong>${ageLabel}:</strong> ${item.count}</div>`;
-        }).join('')}
+              ${subscriptionsByAge.map(item => `
+                <div><strong>${item.displayLabel}:</strong> ${item.count}</div>
+              `).join('')}
             </div>
           </div>
         </div>
