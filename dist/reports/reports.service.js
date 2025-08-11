@@ -1075,35 +1075,109 @@ let ReportsService = class ReportsService {
             .where('channel.id = :channelId', { channelId })
             .getOne();
         if (!channel) {
-            throw new Error('Channel not found');
+            throw new Error(`Channel with ID ${channelId} not found`);
         }
-        const topChannels = await this.getTopChannels({
+        const topChannelsBySubscriptions = await this.getTopChannels({
             metric: 'subscriptions',
             from,
             to,
-            limit: 10,
-            groupBy: 'channel'
+            limit: 5
         });
-        const channelPosition = topChannels.findIndex(c => c.id === channelId) + 1;
-        const isInTop5 = channelPosition <= 5;
-        const top5Channels = topChannels.slice(0, 5);
-        if (!isInTop5 && channelPosition > 0) {
-            const channelData = topChannels.find(c => c.id === channelId);
+        const topChannelsByLiveClicks = await this.getTopChannels({
+            metric: 'youtube_clicks',
+            from,
+            to,
+            limit: 5
+        });
+        const topChannelsByDeferredClicks = await this.getTopChannels({
+            metric: 'youtube_clicks',
+            from,
+            to,
+            limit: 5
+        });
+        const channelPositionBySubscriptions = topChannelsBySubscriptions.findIndex(c => c.id === channelId) + 1;
+        const channelPositionByLiveClicks = topChannelsByLiveClicks.findIndex(c => c.name === channel.name) + 1;
+        const channelPositionByDeferredClicks = topChannelsByDeferredClicks.findIndex(c => c.name === channel.name) + 1;
+        const isInTop5BySubscriptions = channelPositionBySubscriptions > 0 && channelPositionBySubscriptions <= 5;
+        const isInTop5ByLiveClicks = channelPositionByLiveClicks > 0 && channelPositionByLiveClicks <= 5;
+        const isInTop5ByDeferredClicks = channelPositionByDeferredClicks > 0 && channelPositionByDeferredClicks <= 5;
+        let finalSubscriptionsRanking = [...topChannelsBySubscriptions];
+        let finalLiveClicksRanking = [...topChannelsByLiveClicks];
+        let finalDeferredClicksRanking = [...topChannelsByDeferredClicks];
+        if (!isInTop5BySubscriptions) {
+            const channelData = await this.dataSource
+                .createQueryBuilder('channel', 'channel')
+                .leftJoin('channel.programs', 'program')
+                .leftJoin('program.subscriptions', 'subscription')
+                .select('channel.id', 'id')
+                .addSelect('channel.name', 'name')
+                .addSelect('COUNT(subscription.id)', 'count')
+                .where('channel.id = :channelId', { channelId })
+                .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+                .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+                .andWhere('subscription.isActive = :isActive', { isActive: true })
+                .groupBy('channel.id')
+                .addGroupBy('channel.name')
+                .getRawOne();
             if (channelData) {
-                top5Channels.push({
+                finalSubscriptionsRanking.push({
                     ...channelData,
-                    name: `${channelData.name} (${channelPosition}º)`
+                    name: `${channelData.name} (${channelPositionBySubscriptions}º)`
                 });
             }
         }
-        const topPrograms = await this.getTopPrograms({
+        if (!isInTop5ByLiveClicks) {
+            const liveClicks = await (0, posthog_util_1.fetchYouTubeClicks)({
+                from,
+                to,
+                eventType: 'click_youtube_live',
+                breakdownBy: 'channel_name',
+                limit: 100
+            });
+            const channelLiveClicks = liveClicks.filter(c => c.properties.channel_name === channel.name);
+            const totalLiveClicks = channelLiveClicks.length;
+            if (totalLiveClicks > 0) {
+                finalLiveClicksRanking.push({
+                    id: channelId,
+                    name: `${channel.name} (${channelPositionByLiveClicks}º)`,
+                    count: totalLiveClicks
+                });
+            }
+        }
+        if (!isInTop5ByDeferredClicks) {
+            const deferredClicks = await (0, posthog_util_1.fetchYouTubeClicks)({
+                from,
+                to,
+                eventType: 'click_youtube_deferred',
+                breakdownBy: 'channel_name',
+                limit: 100
+            });
+            const channelDeferredClicks = deferredClicks.filter(c => c.properties.channel_name === channel.name);
+            const totalDeferredClicks = channelDeferredClicks.length;
+            if (totalDeferredClicks > 0) {
+                finalDeferredClicksRanking.push({
+                    id: channelId,
+                    name: `${channel.name} (${channelPositionByDeferredClicks}º)`,
+                    count: totalDeferredClicks
+                });
+            }
+        }
+        const topProgramsBySubscriptions = await this.getTopPrograms({
             metric: 'subscriptions',
             from,
             to,
             limit: 5,
             groupBy: 'program'
         });
-        const channelPrograms = topPrograms.filter(p => p.channelId === channelId);
+        const channelProgramsBySubscriptions = topProgramsBySubscriptions.filter(p => p.channelId === channelId);
+        const topProgramsByClicks = await this.getTopPrograms({
+            metric: 'youtube_clicks',
+            from,
+            to,
+            limit: 5,
+            groupBy: 'program'
+        });
+        const channelProgramsByClicks = topProgramsByClicks.filter(p => p.channelId === channelId);
         const subscriptionsByGender = await this.dataSource
             .createQueryBuilder(user_subscription_entity_1.UserSubscription, 'subscription')
             .leftJoinAndSelect('subscription.user', 'user')
@@ -1144,13 +1218,23 @@ let ReportsService = class ReportsService {
         if (format === 'csv') {
             const summaryData = [
                 {
-                    metric: 'Channel Position',
-                    value: channelPosition > 0 ? `${channelPosition}º` : 'Not ranked',
+                    metric: 'Channel Position by Subscriptions',
+                    value: channelPositionBySubscriptions > 0 ? `${channelPositionBySubscriptions}º` : 'Not ranked',
+                    channel: channel.name
+                },
+                {
+                    metric: 'Channel Position by Live YouTube Clicks',
+                    value: channelPositionByLiveClicks > 0 ? `${channelPositionByLiveClicks}º` : 'Not ranked',
+                    channel: channel.name
+                },
+                {
+                    metric: 'Channel Position by Deferred YouTube Clicks',
+                    value: channelPositionByDeferredClicks > 0 ? `${channelPositionByDeferredClicks}º` : 'Not ranked',
                     channel: channel.name
                 },
                 {
                     metric: 'Total Subscriptions',
-                    value: topChannels.find(c => c.id === channelId)?.count || 0,
+                    value: finalSubscriptionsRanking.find(c => c.id === channelId)?.count || 0,
                     channel: channel.name
                 }
             ];
@@ -1175,10 +1259,17 @@ let ReportsService = class ReportsService {
                 channel,
                 from,
                 to,
-                top5Channels,
-                channelPosition,
-                isInTop5,
-                channelPrograms,
+                finalSubscriptionsRanking,
+                finalLiveClicksRanking,
+                finalDeferredClicksRanking,
+                channelPositionBySubscriptions,
+                channelPositionByLiveClicks,
+                channelPositionByDeferredClicks,
+                isInTop5BySubscriptions,
+                isInTop5ByLiveClicks,
+                isInTop5ByDeferredClicks,
+                channelProgramsBySubscriptions,
+                channelProgramsByClicks,
                 subscriptionsByGender,
                 subscriptionsByAge
             });
@@ -1186,7 +1277,7 @@ let ReportsService = class ReportsService {
         }
     }
     buildComprehensiveChannelReportHtml(data) {
-        const { channel, from, to, top5Channels, channelPosition, isInTop5, channelPrograms, subscriptionsByGender, subscriptionsByAge } = data;
+        const { channel, from, to, finalSubscriptionsRanking, finalLiveClicksRanking, finalDeferredClicksRanking, channelPositionBySubscriptions, channelPositionByLiveClicks, channelPositionByDeferredClicks, isInTop5BySubscriptions, isInTop5ByLiveClicks, isInTop5ByDeferredClicks, channelProgramsBySubscriptions, channelProgramsByClicks, subscriptionsByGender, subscriptionsByAge } = data;
         return `
       <!DOCTYPE html>
       <html>
@@ -1235,16 +1326,16 @@ let ReportsService = class ReportsService {
         <div class="section">
           <h2>Posición del Canal en el Ranking</h2>
           <div class="highlight">
-            <strong>${channel.name}</strong> está en la <strong>${channelPosition}º posición</strong> por número de suscripciones
-            ${isInTop5 ? 'dentro del top 5' : 'fuera del top 5'}
+            <strong>${channel.name}</strong> está en la <strong>${channelPositionBySubscriptions}º posición</strong> por número de suscripciones
+            ${isInTop5BySubscriptions ? 'dentro del top 5' : 'fuera del top 5'}
           </div>
           
           <div class="chart-container">
             <h3>Top 5 Canales por Suscripciones</h3>
-            ${top5Channels.map((ch, index) => {
+            ${finalSubscriptionsRanking.map((ch, index) => {
             const isHighlighted = ch.id === channel.id;
             const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
-            const width = Math.max(20, (ch.count / Math.max(...top5Channels.map(c => c.count))) * 100);
+            const width = Math.max(20, (ch.count / Math.max(...finalSubscriptionsRanking.map(c => c.count))) * 100);
             return `
                 <div class="${barClass}" style="width: ${width}%">
                   ${index + 1}º - ${ch.name}: ${ch.count} suscripciones
@@ -1255,11 +1346,55 @@ let ReportsService = class ReportsService {
         </div>
 
         <div class="section">
-          <h2>Top 5 Programas del Canal</h2>
-          ${channelPrograms.length > 0 ? `
+          <h2>Top 5 Canales por Clicks de YouTube en Vivo</h2>
+          <div class="highlight">
+            <strong>${channel.name}</strong> está en la <strong>${channelPositionByLiveClicks}º posición</strong> por clicks de YouTube en vivo
+            ${isInTop5ByLiveClicks ? 'dentro del top 5' : 'fuera del top 5'}
+          </div>
+          
+          <div class="chart-container">
+            <h3>Top 5 Canales por Clicks de YouTube en Vivo</h3>
+            ${finalLiveClicksRanking.map((ch, index) => {
+            const isHighlighted = ch.name === channel.name || ch.name.startsWith(channel.name + ' (');
+            const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
+            const width = Math.max(20, (ch.count / Math.max(...finalLiveClicksRanking.map(c => c.count))) * 100);
+            return `
+                <div class="${barClass}" style="width: ${width}%">
+                  ${index + 1}º - ${ch.name}: ${ch.count} clicks
+                </div>
+              `;
+        }).join('')}
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Top 5 Canales por Clicks de YouTube Diferido</h2>
+          <div class="highlight">
+            <strong>${channel.name}</strong> está en la <strong>${channelPositionByDeferredClicks}º posición</strong> por clicks de YouTube diferido
+            ${isInTop5ByDeferredClicks ? 'dentro del top 5' : 'fuera del top 5'}
+          </div>
+          
+          <div class="chart-container">
+            <h3>Top 5 Canales por Clicks de YouTube Diferido</h3>
+            ${finalDeferredClicksRanking.map((ch, index) => {
+            const isHighlighted = ch.name === channel.name || ch.name.startsWith(channel.name + ' (');
+            const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
+            const width = Math.max(20, (ch.count / Math.max(...finalDeferredClicksRanking.map(c => c.count))) * 100);
+            return `
+                <div class="${barClass}" style="width: ${width}%">
+                  ${index + 1}º - ${ch.name}: ${ch.count} clicks
+                </div>
+              `;
+        }).join('')}
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Top 5 Programas del Canal por Suscripciones</h2>
+          ${channelProgramsBySubscriptions.length > 0 ? `
             <div class="chart-container">
-              ${channelPrograms.map((program, index) => {
-            const width = Math.max(20, (program.count / Math.max(...channelPrograms.map(p => p.count))) * 100);
+              ${channelProgramsBySubscriptions.map((program, index) => {
+            const width = Math.max(20, (program.count / Math.max(...channelProgramsBySubscriptions.map(p => p.count))) * 100);
             return `
                   <div class="bar" style="width: ${width}%">
                     ${index + 1}º - ${program.name}: ${program.count} suscripciones
@@ -1268,6 +1403,22 @@ let ReportsService = class ReportsService {
         }).join('')}
             </div>
           ` : '<p>No hay programas con suscripciones en este período</p>'}
+        </div>
+
+        <div class="section">
+          <h2>Top 5 Programas del Canal por Clicks de YouTube</h2>
+          ${channelProgramsByClicks.length > 0 ? `
+            <div class="chart-container">
+              ${channelProgramsByClicks.map((program, index) => {
+            const width = Math.max(20, (program.count / Math.max(...channelProgramsByClicks.map(p => p.count))) * 100);
+            return `
+                  <div class="bar" style="width: ${width}%">
+                    ${index + 1}º - ${program.name}: ${program.count} clicks
+                  </div>
+                `;
+        }).join('')}
+            </div>
+          ` : '<p>No hay programas con clicks de YouTube en este período</p>'}
         </div>
 
         <div class="section">
