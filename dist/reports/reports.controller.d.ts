@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
 export declare class GenerateReportDto {
-    type: 'users' | 'subscriptions' | 'weekly-summary';
+    type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary' | 'comprehensive-channel-summary';
     format: 'csv' | 'pdf';
     from: string;
     to: string;
