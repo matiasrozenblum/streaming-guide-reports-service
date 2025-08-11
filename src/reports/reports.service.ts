@@ -1294,7 +1294,35 @@ export class ReportsService {
     });
 
     // Filter programs to only show those from this channel
-    const channelProgramsBySubscriptions = topProgramsBySubscriptions.filter(p => p.channelId === channelId);
+    // For subscriptions, we need to filter by channelName since that's what getTopPrograms returns
+    const channelProgramsBySubscriptions = topProgramsBySubscriptions.filter(p => p.channelName === channel.name);
+
+    // If no programs found by channel name, try to get programs directly for this channel
+    if (channelProgramsBySubscriptions.length === 0) {
+      // Direct query for programs in this channel with subscriptions
+      const directPrograms = await this.dataSource
+        .createQueryBuilder('program', 'program')
+        .leftJoin('program.subscriptions', 'subscription')
+        .leftJoin('program.channel', 'channel')
+        .select('program.id', 'id')
+        .addSelect('program.name', 'name')
+        .addSelect('channel.name', 'channelName')
+        .addSelect('COUNT(subscription.id)', 'count')
+        .where('channel.id = :channelId', { channelId })
+        .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('subscription.isActive = :isActive', { isActive: true })
+        .groupBy('program.id')
+        .addGroupBy('program.name')
+        .addGroupBy('channel.name')
+        .orderBy('count', 'DESC')
+        .limit(5)
+        .getRawMany();
+      
+      // Replace the empty array
+      channelProgramsBySubscriptions.length = 0;
+      channelProgramsBySubscriptions.push(...directPrograms);
+    }
 
     // Get top 5 programs for this channel by YouTube clicks
     const topProgramsByClicks = await this.getTopPrograms({
@@ -1388,6 +1416,23 @@ export class ReportsService {
       .groupBy('ageGroup')
       .getRawMany();
 
+    // Debug: Check if we're getting any subscriptions at all for this channel
+    const totalSubscriptionsForChannel = await this.dataSource
+      .createQueryBuilder(UserSubscription, 'subscription')
+      .leftJoinAndSelect('subscription.program', 'program')
+      .leftJoinAndSelect('program.channel', 'channel')
+      .where('channel.id = :channelId', { channelId })
+      .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+      .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+      .andWhere('subscription.isActive = :isActive', { isActive: true })
+      .getCount();
+
+    console.log('Total subscriptions for channel:', totalSubscriptionsForChannel);
+    console.log('Channel ID being queried:', channelId);
+    console.log('Date range:', { from, to });
+    console.log('Raw subscriptions by gender query result:', subscriptionsByGender);
+    console.log('Raw subscriptions by age query result:', subscriptionsByAge);
+
     // Clean up the age data to ensure no undefined values
     const cleanSubscriptionsByAge = subscriptionsByAge
       .filter(item => item.ageGroup && item.ageGroup !== 'undefined')
@@ -1404,11 +1449,42 @@ export class ReportsService {
         count: parseInt(item.count) || 0
       }));
 
+    // If no demographics data found, try a simpler approach
+    if (cleanSubscriptionsByAge.length === 0 && totalSubscriptionsForChannel > 0) {
+      console.log('No age data found, trying simpler query...');
+      // Try a simpler query without the complex CASE statement
+      const simpleAgeQuery = await this.dataSource
+        .createQueryBuilder(UserSubscription, 'subscription')
+        .leftJoinAndSelect('subscription.user', 'user')
+        .leftJoinAndSelect('subscription.program', 'program')
+        .leftJoinAndSelect('program.channel', 'channel')
+        .select([
+          'user.birthDate',
+          'COUNT(subscription.id) as count'
+        ])
+        .where('channel.id = :channelId', { channelId })
+        .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
+        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
+        .andWhere('subscription.isActive = :isActive', { isActive: true })
+        .groupBy('user.birthDate')
+        .getRawMany();
+      
+      console.log('Simple age query result:', simpleAgeQuery);
+    }
+
     // Create age group labels for display
     const ageGroupLabels = cleanSubscriptionsByAge.map(item => ({
       ...item,
       displayLabel: this.getAgeGroupLabel(item.ageGroup)
     }));
+
+    // Debug logging
+    console.log('Raw subscriptions by gender:', subscriptionsByGender);
+    console.log('Raw subscriptions by age:', subscriptionsByAge);
+    console.log('Clean subscriptions by gender:', cleanSubscriptionsByGender);
+    console.log('Clean subscriptions by age:', ageGroupLabels);
+    console.log('Channel programs by subscriptions:', channelProgramsBySubscriptions);
+    console.log('Channel programs by clicks:', channelProgramsByClicks);
 
     if (format === 'csv') {
       // For CSV, return a summary with the key metrics
@@ -1657,15 +1733,21 @@ export class ReportsService {
           <div class="stats-grid">
             <div class="stat-box">
               <div class="stat-title">Suscripciones por Género</div>
-              ${subscriptionsByGender.map(item => `
-                <div><strong>${item.gender || 'No especificado'}:</strong> ${item.count}</div>
-              `).join('')}
+              ${subscriptionsByGender.length > 0 ? 
+                subscriptionsByGender.map(item => `
+                  <div><strong>${item.gender || 'No especificado'}:</strong> ${item.count}</div>
+                `).join('') : 
+                '<div>No hay datos de género disponibles</div>'
+              }
             </div>
             <div class="stat-box">
               <div class="stat-title">Suscripciones por Edad</div>
-              ${subscriptionsByAge.map(item => `
-                <div><strong>${item.displayLabel}:</strong> ${item.count}</div>
-              `).join('')}
+              ${subscriptionsByAge.length > 0 ? 
+                subscriptionsByAge.map(item => `
+                  <div><strong>${item.displayLabel}:</strong> ${item.count}</div>
+                `).join('') : 
+                '<div>No hay datos de edad disponibles</div>'
+              }
             </div>
           </div>
         </div>
