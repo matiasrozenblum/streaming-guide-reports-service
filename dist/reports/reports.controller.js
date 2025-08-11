@@ -16,12 +16,36 @@ exports.ReportsController = exports.GenerateReportDto = void 0;
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const reports_service_1 = require("./reports.service");
+const puppeteer_util_1 = require("./puppeteer.util");
 class GenerateReportDto {
 }
 exports.GenerateReportDto = GenerateReportDto;
 let ReportsController = class ReportsController {
     constructor(reportsService) {
         this.reportsService = reportsService;
+    }
+    async healthCheck() {
+        try {
+            const browser = await (0, puppeteer_util_1.getBrowser)();
+            const page = await browser.newPage();
+            await page.setContent('<html><body><h1>Test</h1></body></html>');
+            const pdf = await page.pdf({ format: 'A4' });
+            await page.close();
+            return {
+                status: 'healthy',
+                puppeteer: 'working',
+                pdfSize: pdf.length,
+                timestamp: new Date().toISOString(),
+            };
+        }
+        catch (error) {
+            return {
+                status: 'unhealthy',
+                puppeteer: 'error',
+                error: error.message,
+                timestamp: new Date().toISOString(),
+            };
+        }
     }
     async generateReport(request, res) {
         const result = await this.reportsService.generateReport(request);
@@ -53,6 +77,14 @@ let ReportsController = class ReportsController {
     }
 };
 exports.ReportsController = ReportsController;
+__decorate([
+    (0, common_1.Get)('health'),
+    (0, swagger_1.ApiOperation)({ summary: 'Health check for Puppeteer' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Service is healthy' }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], ReportsController.prototype, "healthCheck", null);
 __decorate([
     (0, common_1.Post)('generate'),
     (0, swagger_1.ApiOperation)({ summary: 'Generate a report (returns file, never sends email)' }),

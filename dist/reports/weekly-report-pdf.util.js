@@ -1,9 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateWeeklyReportPdf = generateWeeklyReportPdf;
+exports.generatePeriodicReportPdf = generatePeriodicReportPdf;
 const puppeteer_util_1 = require("./puppeteer.util");
 const chart_util_1 = require("./chart.util");
 async function generateWeeklyReportPdf({ data, charts, }) {
+    return generatePeriodicReportPdf({ data, charts, period: 'weekly' });
+}
+async function generatePeriodicReportPdf({ data, charts, period, }) {
+    const getReportTitle = (period) => {
+        switch (period) {
+            case 'weekly': return 'Reporte Semanal Unificado';
+            case 'monthly': return 'Reporte Mensual Unificado';
+            case 'quarterly': return 'Reporte Trimestral Unificado';
+            case 'yearly': return 'Reporte Anual Unificado';
+            default: return 'Reporte Unificado';
+        }
+    };
     const html = `
     <html>
       <head>
@@ -21,7 +34,7 @@ async function generateWeeklyReportPdf({ data, charts, }) {
       </head>
       <body>
         <img src="https://laguiadelstreaming.com/img/logo.png" class="logo" alt="Logo" />
-        <h1>Reporte Semanal Unificado</h1>
+        <h1>${getReportTitle(period)}</h1>
         <div class="section">
           <h2>Resumen General</h2>
           <p><b>Período:</b> ${data.from} a ${data.to}</p>
@@ -68,11 +81,32 @@ async function generateWeeklyReportPdf({ data, charts, }) {
       </body>
     </html>
   `;
-    const browser = await (0, puppeteer_util_1.getBrowser)();
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-    await browser.close();
-    return Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    let page = null;
+    try {
+        const browser = await (0, puppeteer_util_1.getBrowser)();
+        page = await browser.newPage();
+        page.setDefaultTimeout(60000);
+        await page.setContent(html, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            timeout: 60000
+        });
+        return Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    }
+    catch (error) {
+        console.error('Error generating PDF:', error);
+        throw new Error(`Failed to generate PDF: ${error.message}`);
+    }
+    finally {
+        if (page) {
+            try {
+                await page.close();
+            }
+            catch (error) {
+                console.warn('Error closing page:', error);
+            }
+        }
+    }
 }
 //# sourceMappingURL=weekly-report-pdf.util.js.map

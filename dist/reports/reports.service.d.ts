@@ -3,7 +3,7 @@ export declare class ReportsService {
     private dataSource;
     constructor(dataSource: DataSource);
     generateReport(request: {
-        type: 'users' | 'subscriptions' | 'weekly-summary';
+        type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary' | 'comprehensive-channel-summary';
         format: 'csv' | 'pdf';
         from: string;
         to: string;
@@ -36,4 +36,15 @@ export declare class ReportsService {
         limit: number;
         groupBy?: string;
     }): Promise<any[]>;
+    generatePeriodicReport(params: {
+        from: string;
+        to: string;
+        channelId?: number;
+        period: 'monthly' | 'quarterly' | 'yearly';
+    }): Promise<Buffer>;
+    generateChannelReport(from: string, to: string, format: 'csv' | 'pdf', channelId: number): Promise<Buffer | string>;
+    private buildChannelReportHtml;
+    generateComprehensiveChannelReport(from: string, to: string, format: 'csv' | 'pdf', channelId: number): Promise<Buffer | string>;
+    private buildComprehensiveChannelReportHtml;
+    private getAgeGroupLabel;
 }
