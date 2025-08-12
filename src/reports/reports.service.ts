@@ -708,10 +708,19 @@ export class ReportsService {
       return results;
     } else if (metric === 'youtube_clicks') {
       // Top channels by YouTube clicks from PostHog (aggregate live + deferred)
+      console.log(`🔍 Fetching YouTube clicks for channels from ${from} to ${to}`);
+      
       const [live, deferred] = await Promise.all([
         fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
         fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
       ]);
+      
+      console.log(`📊 YouTube clicks data received:`, {
+        liveCount: live.length,
+        deferredCount: deferred.length,
+        totalEvents: live.length + deferred.length
+      });
+      
       // Aggregate by channel name
       const map = new Map();
       for (const row of [...live, ...deferred]) {
@@ -719,9 +728,13 @@ export class ReportsService {
         if (!map.has(key)) map.set(key, { name: key, count: 0 });
         map.get(key).count += 1;
       }
-      return Array.from(map.values())
+      
+      const result = Array.from(map.values())
         .sort((a, b) => b.count - a.count)
         .slice(0, limit);
+      
+      console.log(`✅ Aggregated YouTube clicks result:`, result);
+      return result;
     }
     return [];
   }
@@ -835,10 +848,19 @@ export class ReportsService {
       return results;
     } else if (metric === 'youtube_clicks') {
       // Top programs by YouTube clicks from PostHog (aggregate live + deferred)
+      console.log(`🔍 Fetching YouTube clicks for programs from ${from} to ${to}`);
+      
       const [live, deferred] = await Promise.all([
         fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
         fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
       ]);
+      
+      console.log(`📊 YouTube clicks data received for programs:`, {
+        liveCount: live.length,
+        deferredCount: deferred.length,
+        totalEvents: live.length + deferred.length
+      });
+      
       // Aggregate by program name
       const map = new Map();
       for (const row of [...live, ...deferred]) {
@@ -846,9 +868,13 @@ export class ReportsService {
         if (!map.has(key)) map.set(key, { name: key, count: 0 });
         map.get(key).count += 1;
       }
-      return Array.from(map.values())
+      
+      const result = Array.from(map.values())
         .sort((a, b) => b.count - a.count)
         .slice(0, limit);
+      
+      console.log(`✅ Aggregated YouTube clicks result for programs:`, result);
+      return result;
     }
     return [];
   }
