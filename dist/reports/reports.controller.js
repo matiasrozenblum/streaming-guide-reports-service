@@ -12,145 +12,197 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ReportsController = exports.GenerateReportDto = void 0;
+exports.ReportsController = void 0;
 const common_1 = require("@nestjs/common");
-const swagger_1 = require("@nestjs/swagger");
 const reports_service_1 = require("./reports.service");
-const puppeteer_util_1 = require("./puppeteer.util");
-const posthog_util_1 = require("./posthog.util");
-class GenerateReportDto {
-}
-exports.GenerateReportDto = GenerateReportDto;
 let ReportsController = class ReportsController {
     constructor(reportsService) {
         this.reportsService = reportsService;
     }
-    async healthCheck() {
-        try {
-            const browser = await (0, puppeteer_util_1.getBrowser)();
-            const page = await browser.newPage();
-            await page.setContent('<html><body><h1>Test</h1></body></html>');
-            const pdf = await page.pdf({ format: 'A4' });
-            await page.close();
-            return {
-                status: 'healthy',
-                puppeteer: 'working',
-                pdfSize: pdf.length,
-                timestamp: new Date().toISOString(),
-            };
-        }
-        catch (error) {
-            return {
-                status: 'unhealthy',
-                puppeteer: 'error',
-                error: error.message,
-                timestamp: new Date().toISOString(),
-            };
-        }
-    }
-    async generateReport(request, res) {
-        const result = await this.reportsService.generateReport(request);
-        if (request.format === 'csv') {
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', `attachment; filename="${request.type}_report_${request.from}_to_${request.to}.csv"`);
-        }
-        else {
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', `attachment; filename="${request.type}_report_${request.from}_to_${request.to}.pdf"`);
-        }
-        res.send(result);
-    }
-    async downloadWeeklyReport(res, from, to, channelId) {
-        const result = await this.reportsService.generateWeeklyReport({
+    async generateWeeklyReport(from, to, channelId, format = 'pdf') {
+        const report = await this.reportsService.generateWeeklyReport({
             from,
             to,
-            channelId: channelId ? parseInt(channelId) : undefined,
+            channelId,
         });
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="weekly_report_${from}_to_${to}.pdf"`);
-        res.send(result);
+        if (format === 'csv') {
+            return report;
+        }
+        return report;
     }
-    async getTopChannels(metric, from, to, limit, groupBy) {
-        return this.reportsService.getTopChannels({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
+    async generatePeriodicReport(from, to, channelId, period = 'monthly', format = 'pdf') {
+        const report = await this.reportsService.generatePeriodicReport({
+            from,
+            to,
+            channelId,
+            period,
+        });
+        if (format === 'csv') {
+            return report;
+        }
+        return report;
     }
-    async getTopPrograms(metric, from, to, limit, groupBy) {
-        return this.reportsService.getTopPrograms({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
+    async generateUsersReport(from, to, format = 'csv') {
+        const report = await this.reportsService.generateUsersReport(from, to, format);
+        if (format === 'csv') {
+            return report;
+        }
+        return report;
     }
-    async testPostHog() {
-        const configValidation = (0, posthog_util_1.validatePostHogConfig)();
-        const connectionTest = await (0, posthog_util_1.testPostHogConnection)();
-        return {
-            configValidation,
-            connectionTest,
-            timestamp: new Date().toISOString()
-        };
+    async generateSubscriptionsReport(from, to, channelId, programId, format = 'csv') {
+        const report = await this.reportsService.generateSubscriptionsReport(from, to, format, channelId, programId);
+        if (format === 'csv') {
+            return report;
+        }
+        return report;
+    }
+    async generateChannelReport(from, to, channelId, format = 'pdf') {
+        const report = await this.reportsService.generateChannelReport(from, to, format, channelId);
+        if (format === 'csv') {
+            return report;
+        }
+        return report;
+    }
+    async generateComprehensiveChannelReport(from, to, channelId, format = 'pdf') {
+        const report = await this.reportsService.generateComprehensiveChannelReport(from, to, format, channelId);
+        if (format === 'csv') {
+            return report;
+        }
+        return report;
+    }
+    async getTopChannels(from, to, channelId, gender, age) {
+        return this.reportsService.getTopChannels(from, to, channelId, gender, age);
+    }
+    async getTopPrograms(from, to, channelId, gender, age) {
+        return this.reportsService.getTopPrograms(from, to, channelId, gender, age);
+    }
+    async exportReport(res, type, from, to, channelId, programId, format = 'csv') {
+        try {
+            const report = await this.reportsService.generateReport({
+                type: type,
+                format,
+                from,
+                to,
+                channelId,
+                programId,
+            });
+            if (format === 'csv') {
+                res.setHeader('Content-Type', 'text/csv');
+                res.setHeader('Content-Disposition', `attachment; filename="${type}-${from}-${to}.csv"`);
+                res.status(common_1.HttpStatus.OK).send(report);
+            }
+            else {
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `attachment; filename="${type}-${from}-${to}.pdf"`);
+                res.status(common_1.HttpStatus.OK).send(report);
+            }
+        }
+        catch (error) {
+            res.status(common_1.HttpStatus.INTERNAL_SERVER_ERROR).json({
+                error: error.message,
+                timestamp: new Date().toISOString()
+            });
+        }
     }
 };
 exports.ReportsController = ReportsController;
 __decorate([
-    (0, common_1.Get)('health'),
-    (0, swagger_1.ApiOperation)({ summary: 'Health check for Puppeteer' }),
-    (0, swagger_1.ApiResponse)({ status: 200, description: 'Service is healthy' }),
+    (0, common_1.Get)('weekly-summary'),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Query)('to')),
+    __param(2, (0, common_1.Query)('channelId')),
+    __param(3, (0, common_1.Query)('format')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [String, String, Number, String]),
     __metadata("design:returntype", Promise)
-], ReportsController.prototype, "healthCheck", null);
+], ReportsController.prototype, "generateWeeklyReport", null);
 __decorate([
-    (0, common_1.Post)('generate'),
-    (0, swagger_1.ApiOperation)({ summary: 'Generate a report (returns file, never sends email)' }),
-    (0, swagger_1.ApiBody)({ type: GenerateReportDto }),
-    (0, swagger_1.ApiResponse)({ status: 200, description: 'Report generated successfully' }),
-    __param(0, (0, common_1.Body)()),
-    __param(1, (0, common_1.Res)()),
+    (0, common_1.Get)('periodic-summary'),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Query)('to')),
+    __param(2, (0, common_1.Query)('channelId')),
+    __param(3, (0, common_1.Query)('period')),
+    __param(4, (0, common_1.Query)('format')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [GenerateReportDto, Object]),
+    __metadata("design:paramtypes", [String, String, Number, String, String]),
     __metadata("design:returntype", Promise)
-], ReportsController.prototype, "generateReport", null);
+], ReportsController.prototype, "generatePeriodicReport", null);
 __decorate([
-    (0, common_1.Get)('weekly-summary/download'),
-    (0, swagger_1.ApiOperation)({ summary: 'Download weekly summary report' }),
-    __param(0, (0, common_1.Res)()),
-    __param(1, (0, common_1.Query)('from')),
-    __param(2, (0, common_1.Query)('to')),
-    __param(3, (0, common_1.Query)('channelId')),
+    (0, common_1.Get)('users'),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Query)('to')),
+    __param(2, (0, common_1.Query)('format')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String, String]),
+    __metadata("design:paramtypes", [String, String, String]),
     __metadata("design:returntype", Promise)
-], ReportsController.prototype, "downloadWeeklyReport", null);
+], ReportsController.prototype, "generateUsersReport", null);
+__decorate([
+    (0, common_1.Get)('subscriptions'),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Query)('to')),
+    __param(2, (0, common_1.Query)('channelId')),
+    __param(3, (0, common_1.Query)('programId')),
+    __param(4, (0, common_1.Query)('format')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, Number, Number, String]),
+    __metadata("design:returntype", Promise)
+], ReportsController.prototype, "generateSubscriptionsReport", null);
+__decorate([
+    (0, common_1.Get)('channel-summary'),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Query)('to')),
+    __param(2, (0, common_1.Query)('channelId')),
+    __param(3, (0, common_1.Query)('format')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, Number, String]),
+    __metadata("design:returntype", Promise)
+], ReportsController.prototype, "generateChannelReport", null);
+__decorate([
+    (0, common_1.Get)('comprehensive-channel-summary'),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Query)('to')),
+    __param(2, (0, common_1.Query)('channelId')),
+    __param(3, (0, common_1.Query)('format')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, Number, String]),
+    __metadata("design:returntype", Promise)
+], ReportsController.prototype, "generateComprehensiveChannelReport", null);
 __decorate([
     (0, common_1.Get)('top-channels'),
-    (0, swagger_1.ApiOperation)({ summary: 'Get top channels by subscriptions or YouTube clicks' }),
-    __param(0, (0, common_1.Query)('metric')),
-    __param(1, (0, common_1.Query)('from')),
-    __param(2, (0, common_1.Query)('to')),
-    __param(3, (0, common_1.Query)('limit')),
-    __param(4, (0, common_1.Query)('groupBy')),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Query)('to')),
+    __param(2, (0, common_1.Query)('channelId')),
+    __param(3, (0, common_1.Query)('gender')),
+    __param(4, (0, common_1.Query)('age')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String, String, String]),
+    __metadata("design:paramtypes", [String, String, Number, String, String]),
     __metadata("design:returntype", Promise)
 ], ReportsController.prototype, "getTopChannels", null);
 __decorate([
     (0, common_1.Get)('top-programs'),
-    (0, swagger_1.ApiOperation)({ summary: 'Get top programs by subscriptions or YouTube clicks' }),
-    __param(0, (0, common_1.Query)('metric')),
-    __param(1, (0, common_1.Query)('from')),
-    __param(2, (0, common_1.Query)('to')),
-    __param(3, (0, common_1.Query)('limit')),
-    __param(4, (0, common_1.Query)('groupBy')),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Query)('to')),
+    __param(2, (0, common_1.Query)('channelId')),
+    __param(3, (0, common_1.Query)('gender')),
+    __param(4, (0, common_1.Query)('age')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String, String, String]),
+    __metadata("design:paramtypes", [String, String, Number, String, String]),
     __metadata("design:returntype", Promise)
 ], ReportsController.prototype, "getTopPrograms", null);
 __decorate([
-    (0, common_1.Get)('test-posthog'),
-    (0, swagger_1.ApiOperation)({ summary: 'Test PostHog connection and configuration' }),
-    (0, swagger_1.ApiResponse)({ status: 200, description: 'PostHog connection test result' }),
+    (0, common_1.Get)('export'),
+    __param(0, (0, common_1.Res)()),
+    __param(1, (0, common_1.Query)('type')),
+    __param(2, (0, common_1.Query)('from')),
+    __param(3, (0, common_1.Query)('to')),
+    __param(4, (0, common_1.Query)('channelId')),
+    __param(5, (0, common_1.Query)('programId')),
+    __param(6, (0, common_1.Query)('format')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [Object, String, String, String, Number, Number, String]),
     __metadata("design:returntype", Promise)
-], ReportsController.prototype, "testPostHog", null);
+], ReportsController.prototype, "exportReport", null);
 exports.ReportsController = ReportsController = __decorate([
-    (0, swagger_1.ApiTags)('reports'),
     (0, common_1.Controller)('reports'),
     __metadata("design:paramtypes", [reports_service_1.ReportsService])
 ], ReportsController);
