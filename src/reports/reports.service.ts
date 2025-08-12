@@ -773,8 +773,8 @@ export class ReportsService {
         return arr.slice(0, limit);
       } else if (metric === 'youtube_clicks') {
         const [live, deferred] = await Promise.all([
-          fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
-          fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+          fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+          fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
         ]);
         const map = new Map();
         for (const row of [...live, ...deferred]) {
@@ -832,8 +832,8 @@ export class ReportsService {
       console.log(`🔍 Fetching YouTube clicks for programs from ${from} to ${to}`);
       
       const [live, deferred] = await Promise.all([
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+        fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+        fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
       ]);
       
       console.log(`📊 YouTube clicks data received for programs:`, {
@@ -956,9 +956,9 @@ export class ReportsService {
         .getRawMany(),
 
       // YouTube clicks (live)
-      fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
+      fetchYouTubeClicks('click_youtube_live', from, to, 10000),
       // YouTube clicks (deferred)
-      fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+      fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
     ]);
 
     // Convert arrays to objects for compatibility
@@ -1249,13 +1249,7 @@ export class ReportsService {
 
     if (!isInTop5ByLiveClicks) {
       // Get live clicks for this specific channel
-      const liveClicks = await fetchYouTubeClicks({ 
-        from, 
-        to, 
-        eventType: 'click_youtube_live', 
-        breakdownBy: 'channel_name', 
-        limit: 100 
-      });
+      const liveClicks = await fetchYouTubeClicks('click_youtube_live', from, to, 10000);
       
       const channelLiveClicks = liveClicks.filter(c => c.properties.channel_name === channel.name);
       const totalLiveClicks = channelLiveClicks.length;
@@ -1271,13 +1265,7 @@ export class ReportsService {
 
     if (!isInTop5ByDeferredClicks) {
       // Get deferred clicks for this specific channel
-      const deferredClicks = await fetchYouTubeClicks({ 
-        from, 
-        to, 
-        eventType: 'click_youtube_deferred', 
-        breakdownBy: 'channel_name', 
-        limit: 100 
-      });
+      const deferredClicks = await fetchYouTubeClicks('click_youtube_deferred', from, to, 10000);
       
       const channelDeferredClicks = deferredClicks.filter(c => c.properties.channel_name === channel.name);
       const totalDeferredClicks = channelDeferredClicks.length;
@@ -1353,8 +1341,8 @@ export class ReportsService {
     // If no programs found by channel name, try to get programs directly for this channel
     if (channelProgramsByClicks.length === 0) {
       const [liveClicks, deferredClicks] = await Promise.all([
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+        fetchYouTubeClicks('click_youtube_live', from, to, 100),
+        fetchYouTubeClicks('click_youtube_deferred', from, to, 100),
       ]);
       
       // Filter clicks for this specific channel

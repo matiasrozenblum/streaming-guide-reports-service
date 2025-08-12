@@ -54,12 +54,7 @@ describe('posthog.util', () => {
     // Replace global fetch with mock
     global.fetch = mockFetch;
 
-    const result = await fetchYouTubeClicks({ 
-      from: '2024-01-01', 
-      to: '2024-01-31', 
-      eventType: 'click_youtube_live', 
-      breakdownBy: 'channel_name' 
-    });
+    const result = await fetchYouTubeClicks('click_youtube_live', '2024-01-01', '2024-01-31', 1000);
     
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(1);
@@ -79,12 +74,7 @@ describe('posthog.util', () => {
     // Ensure no API key is set
     delete process.env.POSTHOG_API_KEY;
     
-    const result = await fetchYouTubeClicks({ 
-      from: '2024-01-01', 
-      to: '2024-01-31', 
-      eventType: 'click_youtube_live', 
-      breakdownBy: 'channel_name' 
-    });
+    const result = await fetchYouTubeClicks('click_youtube_live', '2024-01-01', '2024-01-31', 1000);
     
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(0);
@@ -101,12 +91,7 @@ describe('posthog.util', () => {
     
     global.fetch = mockFetch;
 
-    const result = await fetchYouTubeClicks({ 
-      from: '2024-01-01', 
-      to: '2024-01-31', 
-      eventType: 'click_youtube_live', 
-      breakdownBy: 'channel_name' 
-    });
+    const result = await fetchYouTubeClicks('click_youtube_live', '2024-01-01', '2024-01-31', 1000);
     
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(0);
@@ -118,12 +103,7 @@ describe('posthog.util', () => {
     
     global.fetch = mockFetch;
 
-    const result = await fetchYouTubeClicks({ 
-      from: '2024-01-01', 
-      to: '2024-01-31', 
-      eventType: 'click_youtube_live', 
-      breakdownBy: 'channel_name' 
-    });
+    const result = await fetchYouTubeClicks('click_youtube_live', '2024-01-01', '2024-01-31', 1000);
     
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(0);
