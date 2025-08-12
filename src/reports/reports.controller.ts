@@ -2,9 +2,10 @@ import { Controller, Post, Body, Get, Query, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
+import { getBrowser } from './puppeteer.util';
 
 export class GenerateReportDto {
-  type: 'users' | 'subscriptions' | 'weekly-summary';
+  type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary' | 'comprehensive-channel-summary';
   format: 'csv' | 'pdf';
   from: string;
   to: string;
@@ -16,6 +17,33 @@ export class GenerateReportDto {
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
+
+  @Get('health')
+  @ApiOperation({ summary: 'Health check for Puppeteer' })
+  @ApiResponse({ status: 200, description: 'Service is healthy' })
+  async healthCheck() {
+    try {
+      const browser = await getBrowser();
+      const page = await browser.newPage();
+      await page.setContent('<html><body><h1>Test</h1></body></html>');
+      const pdf = await page.pdf({ format: 'A4' });
+      await page.close();
+      
+      return {
+        status: 'healthy',
+        puppeteer: 'working',
+        pdfSize: pdf.length,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        puppeteer: 'error',
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
 
   @Post('generate')
   @ApiOperation({ summary: 'Generate a report (returns file, never sends email)' })
