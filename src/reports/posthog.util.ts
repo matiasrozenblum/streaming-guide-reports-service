@@ -43,87 +43,75 @@ export async function fetchYouTubeClicks({
   try {
     // PostHog API: Use the correct endpoint for querying events with project ID
     // The previous endpoint was incorrect - using the proper project-specific events endpoint
-    const url = `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`;
+    // Try multiple endpoint formats to find the correct one
+    const endpoints = [
+      `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+      `${POSTHOG_API_HOST}/api/events/?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+      `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/trend/?events=[{"id":"${eventType}","type":"events"}]&date_from=${from}&date_to=${to}&limit=${limit}`,
+    ];
     
-    console.log(`🔍 Fetching PostHog data from: ${url}`);
-    console.log(`📅 Date range: ${from}T00:00:00Z to ${to}T23:59:59Z`);
-    console.log(`🎯 Event type: ${eventType}`);
+    let lastError: Error | null = null;
     
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${POSTHOG_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    if (!res.ok) {
-      if (res.status === 401) {
-        throw new Error(`PostHog API error: 401 Unauthorized - Please check your POSTHOG_API_KEY environment variable. Make sure you're using a PRIVATE API key, not the public key.`);
-      }
-      throw new Error(`PostHog API error: ${res.status} ${res.statusText}`);
-    }
-    
-    const data = await res.json();
-    console.log(`📊 PostHog API response for ${eventType}:`, {
-      status: res.status,
-      dataKeys: Object.keys(data),
-      resultsCount: data.results?.length || 0,
-      totalCount: data.total_count || 'unknown',
-      responseUrl: res.url
-    });
-    
-    // Handle different possible response formats
-    let events: PostHogClickEvent[] = [];
-    if (data.results && Array.isArray(data.results)) {
-      events = data.results;
-    } else if (data.events && Array.isArray(data.events)) {
-      events = data.events;
-    } else if (Array.isArray(data)) {
-      events = data;
-    } else {
-      console.warn(`⚠️  Unexpected PostHog API response format for ${eventType}:`, data);
-      
-      // Try alternative endpoint as fallback
-      console.log(`🔄 Trying alternative PostHog API endpoint...`);
-      const fallbackUrl = `${POSTHOG_API_HOST}/api/events/?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`;
-      console.log(`🔍 Fallback URL: ${fallbackUrl}`);
-      
-      const fallbackRes = await fetch(fallbackUrl, {
-        headers: {
-          Authorization: `Bearer ${POSTHOG_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (fallbackRes.ok) {
-        const fallbackData = await fallbackRes.json();
-        console.log(`📊 Fallback API response:`, {
-          status: fallbackRes.status,
-          dataKeys: Object.keys(fallbackData),
-          resultsCount: fallbackData.results?.length || 0
+    for (const url of endpoints) {
+      try {
+        console.log(`🔍 Trying PostHog endpoint: ${url}`);
+        
+        const res = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${POSTHOG_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
         });
         
-        if (fallbackData.results && Array.isArray(fallbackData.results)) {
-          events = fallbackData.results;
-        } else if (fallbackData.events && Array.isArray(fallbackData.events)) {
-          events = fallbackData.events;
-        } else if (Array.isArray(fallbackData)) {
-          events = fallbackData;
+        if (res.ok) {
+          const data = await res.json();
+          console.log(`📊 PostHog API response for ${eventType}:`, {
+            status: res.status,
+            dataKeys: Object.keys(data),
+            resultsCount: data.results?.length || 0,
+            totalCount: data.total_count || 'unknown',
+            responseUrl: res.url
+          });
+          
+          // Handle different possible response formats
+          let events: PostHogClickEvent[] = [];
+          if (data.results && Array.isArray(data.results)) {
+            events = data.results;
+          } else if (data.events && Array.isArray(data.events)) {
+            events = data.events;
+          } else if (Array.isArray(data)) {
+            events = data;
+          } else if (data.result && Array.isArray(data.result)) {
+            events = data.result;
+          } else {
+            console.warn(`⚠️  Unexpected PostHog API response format for ${eventType}:`, data);
+            continue; // Try next endpoint
+          }
+          
+          console.log(`✅ Successfully fetched ${events.length} events for ${eventType} from ${url}`);
+          
+          // Log sample events for debugging
+          if (events.length > 0) {
+            console.log(`📝 Sample event:`, events[0]);
+            console.log(`🔍 Event properties keys:`, Object.keys(events[0]?.properties || {}));
+          }
+          
+          return events as PostHogClickEvent[];
+        } else {
+          console.warn(`⚠️  Endpoint ${url} returned ${res.status}: ${res.statusText}`);
+          lastError = new Error(`PostHog API error: ${res.status} ${res.statusText}`);
+          continue; // Try next endpoint
         }
-      } else {
-        console.warn(`⚠️  Fallback API also failed: ${fallbackRes.status} ${fallbackRes.statusText}`);
+      } catch (error) {
+        console.warn(`⚠️  Endpoint ${url} failed:`, error);
+        lastError = error instanceof Error ? error : new Error(String(error));
+        continue; // Try next endpoint
       }
     }
     
-    console.log(`✅ Successfully fetched ${events.length} events for ${eventType}`);
+    // If we get here, all endpoints failed
+    throw lastError || new Error('All PostHog API endpoints failed');
     
-    // Log sample events for debugging
-    if (events.length > 0) {
-      console.log(`📝 Sample event:`, events[0]);
-      console.log(`🔍 Event properties keys:`, Object.keys(events[0]?.properties || {}));
-    }
-    
-    return events as PostHogClickEvent[];
   } catch (error) {
     console.error(`❌ Error fetching PostHog data for ${eventType}:`, error);
     // Return empty array instead of throwing to prevent report generation from failing
@@ -203,4 +191,45 @@ export async function testPostHogConnection(): Promise<{
       details: { error: error instanceof Error ? error.message : String(error) }
     };
   }
+}
+
+// Add a function to validate PostHog configuration
+export function validatePostHogConfig(): {
+  isValid: boolean;
+  issues: string[];
+  config: {
+    apiKey: string;
+    apiHost: string;
+    projectId: string;
+  };
+} {
+  const issues: string[] = [];
+  
+  if (!POSTHOG_API_KEY) {
+    issues.push('POSTHOG_API_KEY is not set');
+  } else if (POSTHOG_API_KEY.length < 10) {
+    issues.push('POSTHOG_API_KEY appears to be too short');
+  }
+  
+  if (!POSTHOG_API_HOST) {
+    issues.push('POSTHOG_API_HOST is not set');
+  } else if (!POSTHOG_API_HOST.startsWith('http')) {
+    issues.push('POSTHOG_API_HOST should be a valid URL');
+  }
+  
+  if (!POSTHOG_PROJECT_ID) {
+    issues.push('POSTHOG_PROJECT_ID is not set');
+  } else if (POSTHOG_PROJECT_ID.length < 10) {
+    issues.push('POSTHOG_PROJECT_ID appears to be too short');
+  }
+  
+  return {
+    isValid: issues.length === 0,
+    issues,
+    config: {
+      apiKey: POSTHOG_API_KEY || 'NOT_SET',
+      apiHost: POSTHOG_API_HOST || 'NOT_SET',
+      projectId: POSTHOG_PROJECT_ID || 'NOT_SET'
+    }
+  };
 } 

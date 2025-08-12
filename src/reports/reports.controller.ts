@@ -3,7 +3,7 @@ import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth, ApiQuery } 
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { getBrowser } from './puppeteer.util';
-import { testPostHogConnection } from './posthog.util';
+import { testPostHogConnection, validatePostHogConfig } from './posthog.util';
 
 // Define the DTO inline since it doesn't exist in a separate file
 export class GenerateReportDto {
@@ -110,6 +110,13 @@ export class ReportsController {
   @ApiOperation({ summary: 'Test PostHog connection and configuration' })
   @ApiResponse({ status: 200, description: 'PostHog connection test result' })
   async testPostHog() {
-    return testPostHogConnection();
+    const configValidation = validatePostHogConfig();
+    const connectionTest = await testPostHogConnection();
+    
+    return {
+      configValidation,
+      connectionTest,
+      timestamp: new Date().toISOString()
+    };
   }
 } 
