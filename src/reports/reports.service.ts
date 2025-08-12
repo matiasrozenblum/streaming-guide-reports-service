@@ -277,19 +277,8 @@ export class ReportsService {
         .getRawMany(),
 
       // YouTube clicks from PostHog
-      fetchYouTubeClicks({
-        from: params.from,
-        to: params.to,
-        eventType: 'click_youtube_live',
-        breakdownBy: 'channel_name',
-      }),
-
-      fetchYouTubeClicks({
-        from: params.from,
-        to: params.to,
-        eventType: 'click_youtube_deferred',
-        breakdownBy: 'channel_name',
-      }),
+      fetchYouTubeClicks('click_youtube_live', params.from, params.to, 10000),
+      fetchYouTubeClicks('click_youtube_deferred', params.from, params.to, 10000),
     ]);
 
     // Process gender data
@@ -309,18 +298,8 @@ export class ReportsService {
 
     // Get program clicks with channel information
     const [programClicksLive, programClicksDeferred] = await Promise.all([
-      fetchYouTubeClicks({
-        from: params.from,
-        to: params.to,
-        eventType: 'click_youtube_live',
-        breakdownBy: 'program_name',
-      }),
-      fetchYouTubeClicks({
-        from: params.from,
-        to: params.to,
-        eventType: 'click_youtube_deferred',
-        breakdownBy: 'program_name',
-      }),
+      fetchYouTubeClicks('click_youtube_live', params.from, params.to, 10000),
+      fetchYouTubeClicks('click_youtube_deferred', params.from, params.to, 10000),
     ]);
 
     const topProgramsByClicksLive = await aggregateClicksBy(programClicksLive, 'program_name');
@@ -657,8 +636,8 @@ export class ReportsService {
         return arr.slice(0, limit);
       } else if (metric === 'youtube_clicks') {
         const [live, deferred] = await Promise.all([
-          fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
-          fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+          fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+          fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
         ]);
         const map = new Map();
         for (const row of [...live, ...deferred]) {
@@ -712,8 +691,8 @@ export class ReportsService {
       console.log(`🔍 Fetching YouTube clicks for channels from ${from} to ${to}`);
       
       const [live, deferred] = await Promise.all([
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+        fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+        fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
       ]);
       
       console.log(`📊 YouTube clicks data received:`, {
