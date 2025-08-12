@@ -48,6 +48,38 @@ export function setPostHogProjectId(projectId: string) {
   }
 }
 
+// Function to validate PostHog project ID format
+export function validatePostHogProjectId(projectId: string): {
+  isValid: boolean;
+  issues: string[];
+  format: string;
+} {
+  const issues: string[] = [];
+  
+  if (!projectId) {
+    issues.push('Project ID is empty');
+  } else {
+    if (projectId.length < 40) {
+      issues.push(`Project ID is too short: ${projectId.length} characters (expected >= 40)`);
+    }
+    
+    if (projectId.length > 50) {
+      issues.push(`Project ID is too long: ${projectId.length} characters (expected <= 50)`);
+    }
+    
+    // Check if it contains only valid characters (alphanumeric and some special chars)
+    if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) {
+      issues.push('Project ID contains invalid characters');
+    }
+  }
+  
+  return {
+    isValid: issues.length === 0,
+    issues,
+    format: projectId || 'NOT_SET'
+  };
+}
+
 export type PostHogClickEvent = {
   event: string;
   properties: {
@@ -83,14 +115,47 @@ export async function fetchYouTubeClicks({
     // Try multiple endpoint formats to find the correct one
     // Based on PostHog API documentation: https://posthog.com/docs/api
     const endpoints = [
-      // Primary: Query events directly
-      `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
-      // Alternative: Events endpoint
-      `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
-      // Fallback: Insights endpoint
-      `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/trend/`,
-      // Legacy: Direct events endpoint
-      `${POSTHOG_API_HOST}/api/events/`,
+      // Primary: Events endpoint (GET request)
+      {
+        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
+        method: 'GET',
+        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`
+      },
+      // Alternative: Query endpoint (POST request with query body)
+      {
+        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
+        method: 'POST',
+        body: {
+          query: {
+            kind: 'EventsQuery',
+            select: ['*'],
+            event: [eventType],
+            after: `${from}T00:00:00Z`,
+            before: `${to}T23:59:59Z`,
+            limit: limit
+          }
+        }
+      },
+      // Fallback: Insights endpoint (POST request)
+      {
+        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/trend/`,
+        method: 'POST',
+        body: {
+          events: [{
+            id: eventType,
+            type: 'events'
+          }],
+          date_from: from,
+          date_to: to,
+          limit: limit
+        }
+      },
+      // Legacy: Direct events endpoint (GET request)
+      {
+        url: `${POSTHOG_API_HOST}/api/events/`,
+        method: 'GET',
+        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`
+      },
     ];
     
     console.log(`🔍 PostHog configuration:`, {
@@ -103,56 +168,28 @@ export async function fetchYouTubeClicks({
       limit
     });
     
-    console.log(`🔍 Constructed endpoints:`, endpoints.map((url, i) => `${i + 1}. ${url}`));
+    console.log(`🔍 Constructed endpoints:`, endpoints.map((endpoint, i) => `${i + 1}. ${endpoint.method} ${endpoint.url}${endpoint.params || ''}`));
     
     let lastError: Error | null = null;
     
-    for (const url of endpoints) {
+    for (const endpoint of endpoints) {
       try {
-        console.log(`🔍 Trying PostHog endpoint: ${url}`);
-        
-        let requestBody: any = null;
-        let method = 'GET';
-        
-        // For the query endpoint, we need to send a POST request with a query body
-        if (url.includes('/query/')) {
-          method = 'POST';
-          requestBody = {
-            query: {
-              kind: 'EventsQuery',
-              select: ['*'],
-              event: [eventType],
-              after: `${from}T00:00:00Z`,
-              before: `${to}T23:59:59Z`,
-              limit: limit
-            }
-          };
-        } else if (url.includes('/insights/trend/')) {
-          method = 'POST';
-          requestBody = {
-            events: [{
-              id: eventType,
-              type: 'events'
-            }],
-            date_from: from,
-            date_to: to,
-            limit: limit
-          };
-        }
+        const fullUrl = endpoint.params ? `${endpoint.url}${endpoint.params}` : endpoint.url;
+        console.log(`🔍 Trying PostHog endpoint: ${endpoint.method} ${fullUrl}`);
         
         const fetchOptions: RequestInit = {
-          method,
+          method: endpoint.method,
           headers: {
             Authorization: `Bearer ${POSTHOG_API_KEY}`,
             'Content-Type': 'application/json',
           },
         };
         
-        if (requestBody) {
-          fetchOptions.body = JSON.stringify(requestBody);
+        if (endpoint.body) {
+          fetchOptions.body = JSON.stringify(endpoint.body);
         }
         
-        const res = await fetch(url, fetchOptions);
+        const res = await fetch(fullUrl, fetchOptions);
         
         if (res.ok) {
           const data = await res.json();
@@ -175,11 +212,22 @@ export async function fetchYouTubeClicks({
           } else if (data.result && Array.isArray(data.result)) {
             events = data.result;
           } else {
-            console.warn(`⚠️  Unexpected PostHog API response format for ${eventType}:`, data);
+            // Try to get the response body for better error information
+            let errorBody = '';
+            try {
+              errorBody = await res.text();
+            } catch (e) {
+              errorBody = 'Could not read error response body';
+            }
+            
+            console.warn(`⚠️  Endpoint ${fullUrl} returned ${res.status}: ${res.statusText}`);
+            console.warn(`⚠️  Error response body:`, errorBody);
+            
+            lastError = new Error(`PostHog API error: ${res.status} ${res.statusText} - ${errorBody}`);
             continue; // Try next endpoint
           }
           
-          console.log(`✅ Successfully fetched ${events.length} events for ${eventType} from ${url}`);
+          console.log(`✅ Successfully fetched ${events.length} events for ${eventType} from ${fullUrl}`);
           
           // Log sample events for debugging
           if (events.length > 0) {
@@ -189,12 +237,22 @@ export async function fetchYouTubeClicks({
           
           return events as PostHogClickEvent[];
         } else {
-          console.warn(`⚠️  Endpoint ${url} returned ${res.status}: ${res.statusText}`);
-          lastError = new Error(`PostHog API error: ${res.status} ${res.statusText}`);
+          // Try to get the response body for better error information
+          let errorBody = '';
+          try {
+            errorBody = await res.text();
+          } catch (e) {
+            errorBody = 'Could not read error response body';
+          }
+          
+          console.warn(`⚠️  Endpoint ${fullUrl} returned ${res.status}: ${res.statusText}`);
+          console.warn(`⚠️  Error response body:`, errorBody);
+          
+          lastError = new Error(`PostHog API error: ${res.status} ${res.statusText} - ${errorBody}`);
           continue; // Try next endpoint
         }
       } catch (error) {
-        console.warn(`⚠️  Endpoint ${url} failed:`, error);
+        console.warn(`⚠️  Endpoint ${endpoint.url} failed:`, error);
         lastError = error instanceof Error ? error : new Error(String(error));
         continue; // Try next endpoint
       }
@@ -243,36 +301,82 @@ export async function testPostHogConnection(): Promise<{
     
     // Test multiple endpoints
     const testEndpoints = [
-      `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
-      `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
-      `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/trend/`,
-      `${POSTHOG_API_HOST}/api/events/`,
+      // First, test if the API key is valid by checking user info
+      {
+        url: `${POSTHOG_API_HOST}/api/users/@me/`,
+        method: 'GET',
+        description: 'User info endpoint (API key validation)'
+      },
+      // Then test if we can access basic project info
+      {
+        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/`,
+        method: 'GET',
+        description: 'Project info endpoint'
+      },
+      {
+        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
+        method: 'GET',
+        description: 'Events endpoint'
+      },
+      {
+        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/`,
+        method: 'GET',
+        description: 'Insights endpoint'
+      },
+      {
+        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
+        method: 'POST',
+        description: 'Query endpoint',
+        body: {
+          query: {
+            kind: 'EventsQuery',
+            select: ['*'],
+            event: ['youtube_click'],
+            after: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0] + 'T00:00:00Z',
+            before: new Date().toISOString().split('T')[0] + 'T23:59:59Z',
+            limit: 1
+          }
+        }
+      },
+      {
+        url: `${POSTHOG_API_HOST}/api/events/`,
+        method: 'GET',
+        description: 'Legacy events endpoint'
+      },
     ];
     
     let lastError: Error | null = null;
     
-    for (const url of testEndpoints) {
+    for (const endpoint of testEndpoints) {
       try {
-        console.log(`🔍 Testing endpoint: ${url}`);
+        console.log(`🔍 Testing endpoint: ${endpoint.method} ${endpoint.url} (${endpoint.description})`);
         
-        const res = await fetch(url, {
-          method: 'GET',
+        const fetchOptions: RequestInit = {
+          method: endpoint.method,
           headers: {
             Authorization: `Bearer ${POSTHOG_API_KEY}`,
             'Content-Type': 'application/json',
           },
-        });
+        };
+        
+        if (endpoint.body) {
+          fetchOptions.body = JSON.stringify(endpoint.body);
+        }
+        
+        const res = await fetch(endpoint.url, fetchOptions);
         
         if (res.ok) {
           const data = await res.json();
-          console.log(`✅ PostHog connection successful with endpoint: ${url}`);
+          console.log(`✅ PostHog connection successful with endpoint: ${endpoint.url}`);
           console.log(`📊 Response keys:`, Object.keys(data));
           
           return {
             success: true,
-            message: `PostHog connection successful with endpoint: ${url}`,
+            message: `PostHog connection successful with endpoint: ${endpoint.url} (${endpoint.description})`,
             details: { 
-              workingEndpoint: url,
+              workingEndpoint: endpoint.url,
+              workingMethod: endpoint.method,
+              description: endpoint.description,
               status: res.status, 
               responseKeys: Object.keys(data),
               hasResults: !!data.results,
@@ -280,12 +384,22 @@ export async function testPostHogConnection(): Promise<{
             }
           };
         } else {
-          console.warn(`⚠️  Endpoint ${url} returned ${res.status}: ${res.statusText}`);
-          lastError = new Error(`HTTP ${res.status}: ${res.statusText}`);
+          // Try to get the response body for better error information
+          let errorBody = '';
+          try {
+            errorBody = await res.text();
+          } catch (e) {
+            errorBody = 'Could not read error response body';
+          }
+          
+          console.warn(`⚠️  Endpoint ${endpoint.url} returned ${res.status}: ${res.statusText}`);
+          console.warn(`⚠️  Error response body:`, errorBody);
+          
+          lastError = new Error(`HTTP ${res.status}: ${res.statusText} - ${errorBody}`);
           continue;
         }
       } catch (error) {
-        console.warn(`⚠️  Endpoint ${url} failed:`, error);
+        console.warn(`⚠️  Endpoint ${endpoint.url} failed:`, error);
         lastError = error instanceof Error ? error : new Error(String(error));
         continue;
       }
@@ -331,6 +445,11 @@ export function validatePostHogConfig(): {
     finalProjectIdLength: number;
     isUsingFallback: boolean;
   };
+  projectIdValidation: {
+    isValid: boolean;
+    issues: string[];
+    format: string;
+  };
 } {
   const issues: string[] = [];
   
@@ -353,6 +472,11 @@ export function validatePostHogConfig(): {
     issues.push('Expected length: ~40 characters');
   }
   
+  const projectIdValidation = validatePostHogProjectId(POSTHOG_PROJECT_ID || '');
+  if (!projectIdValidation.isValid) {
+    issues.push(...projectIdValidation.issues);
+  }
+  
   return {
     isValid: issues.length === 0,
     issues,
@@ -369,6 +493,7 @@ export function validatePostHogConfig(): {
       finalProjectId: POSTHOG_PROJECT_ID || 'NOT_SET',
       finalProjectIdLength: POSTHOG_PROJECT_ID?.length || 0,
       isUsingFallback: POSTHOG_PROJECT_ID === 'ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK'
-    }
+    },
+    projectIdValidation
   };
 } 
