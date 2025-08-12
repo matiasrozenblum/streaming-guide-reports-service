@@ -1,12 +1,3 @@
-// Note: This should be a PRIVATE API key from PostHog, not the public key used in frontend
-// Get it from: PostHog Project Settings > Project API Keys > Private API Key
-const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY;
-const POSTHOG_API_HOST = process.env.POSTHOG_API_HOST || 'https://app.posthog.com';
-
-if (!POSTHOG_API_KEY) {
-  console.warn('⚠️  POSTHOG_API_KEY environment variable is not set. YouTube click data will not be available in reports.');
-}
-
 export type PostHogClickEvent = {
   event: string;
   properties: {
@@ -20,61 +11,143 @@ export type PostHogClickEvent = {
   timestamp: string;
 };
 
-export async function fetchYouTubeClicks({
-  from,
-  to,
-  eventType,
-  breakdownBy = 'channel_name',
-  limit = 10000,
-}: {
-  from: string;
-  to: string;
-  eventType: 'click_youtube_live' | 'click_youtube_deferred';
-  breakdownBy?: 'channel_name' | 'program_name';
-  limit?: number;
-}): Promise<PostHogClickEvent[]> {
+const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY;
+const POSTHOG_API_HOST = process.env.POSTHOG_API_HOST || 'https://app.posthog.com';
+const POSTHOG_PROJECT_ID = process.env.POSTHOG_PROJECT_ID;
+
+export async function fetchYouTubeClicks(
+  eventType: 'click_youtube_live' | 'click_youtube_deferred',
+  from: string,
+  to: string,
+  limit: number = 1000
+): Promise<PostHogClickEvent[]> {
   if (!POSTHOG_API_KEY) {
-    console.warn(`⚠️  Skipping PostHog API call for ${eventType} - no API key configured`);
     return [];
   }
 
-  try {
-    // PostHog API: /api/projects/:project_id/events
-    // We'll use /api/event for querying events
-    // Docs: https://posthog.com/docs/api/events
-    const url = `${POSTHOG_API_HOST}/api/projects/@current/events?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${POSTHOG_API_KEY}`,
-        'Content-Type': 'application/json',
+  const endpoints = [
+    {
+      url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
+      method: 'GET',
+      params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+    },
+    {
+      url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
+      method: 'POST',
+      body: {
+        query: {
+          kind: 'EventsQuery',
+          select: ['*'],
+          event: [eventType],
+          after: `${from}T00:00:00Z`,
+          before: `${to}T23:59:59Z`,
+          limit: limit,
+        },
       },
-    });
-    
-    if (!res.ok) {
-      if (res.status === 401) {
-        throw new Error(`PostHog API error: 401 Unauthorized - Please check your POSTHOG_API_KEY environment variable. Make sure you're using a PRIVATE API key, not the public key.`);
+    },
+    {
+      url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/trend/`,
+      method: 'GET',
+      params: `?events=[{"id":"${eventType}","type":"events"}]&date_from=${from}&date_to=${to}&limit=${limit}`,
+    },
+    {
+      url: `${POSTHOG_API_HOST}/api/events/`,
+      method: 'GET',
+      params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+    },
+  ];
+
+  let lastError: Error | null = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const fullUrl = endpoint.params ? `${endpoint.url}${endpoint.params}` : endpoint.url;
+      
+      const fetchOptions: RequestInit = {
+        method: endpoint.method,
+        headers: {
+          Authorization: `Bearer ${POSTHOG_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      };
+
+      if (endpoint.body) {
+        fetchOptions.body = JSON.stringify(endpoint.body);
       }
-      throw new Error(`PostHog API error: ${res.status} ${res.statusText}`);
+
+      const res = await fetch(fullUrl, fetchOptions);
+
+      if (res.ok) {
+        const data = await res.json();
+        
+        let events: PostHogClickEvent[] = [];
+        
+        if (data.results && Array.isArray(data.results)) {
+          events = data.results;
+        } else if (data.events && Array.isArray(data.events)) {
+          events = data.events;
+        } else if (data.data && Array.isArray(data.data)) {
+          events = data.data;
+        } else if (Array.isArray(data)) {
+          events = data;
+        }
+
+        // If we have a 'next' cursor, fetch additional pages to get all data
+        if (data.next && events.length > 0) {
+          let allEvents = [...events];
+          let nextCursor = data.next;
+          let pageCount = 1;
+          
+          while (nextCursor && pageCount < 10) {
+            try {
+              const nextUrl = `${endpoint.url}?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&after_cursor=${nextCursor}`;
+              
+              const nextRes = await fetch(nextUrl, fetchOptions);
+              if (nextRes.ok) {
+                const nextData = await nextRes.json();
+                if (nextData.results && Array.isArray(nextData.results)) {
+                  allEvents = [...allEvents, ...nextData.results];
+                  nextCursor = nextData.next;
+                  pageCount++;
+                } else {
+                  break;
+                }
+              } else {
+                break;
+              }
+            } catch (error) {
+              break;
+            }
+          }
+          
+          events = allEvents;
+        }
+
+        return events as PostHogClickEvent[];
+      } else {
+        const errorBody = await res.text();
+        lastError = new Error(`HTTP ${res.status}: ${res.statusText} - ${errorBody}`);
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
     }
-    
-    const data = await res.json();
-    // data.results is an array of events
-    return data.results as PostHogClickEvent[];
-  } catch (error) {
-    console.error(`❌ Error fetching PostHog data for ${eventType}:`, error);
-    // Return empty array instead of throwing to prevent report generation from failing
-    return [];
   }
+
+  throw lastError || new Error('All PostHog API endpoints failed');
 }
 
 export async function aggregateClicksBy(
   events: PostHogClickEvent[],
-  groupBy: 'channel_name' | 'program_name',
+  property: string
 ): Promise<Record<string, number>> {
-  const counts: Record<string, number> = {};
-  for (const ev of events) {
-    const key = ev.properties[groupBy] || 'unknown';
-    counts[key] = (counts[key] || 0) + 1;
+  const aggregated: Record<string, number> = {};
+  
+  for (const event of events) {
+    const value = event.properties?.[property];
+    if (value) {
+      aggregated[value] = (aggregated[value] || 0) + 1;
+    }
   }
-  return counts;
+  
+  return aggregated;
 } 
