@@ -54,6 +54,7 @@ describe('ReportsService', () => {
   it('should generate users report (csv)', async () => {
     jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValueOnce({
       select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
@@ -70,6 +71,7 @@ describe('ReportsService', () => {
     jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValueOnce({
       leftJoinAndSelect: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
@@ -102,6 +104,7 @@ describe('ReportsService', () => {
     jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValueOnce({
       leftJoin: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       getRawMany: jest.fn().mockResolvedValue([
@@ -131,6 +134,7 @@ describe('ReportsService', () => {
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         groupBy: jest.fn().mockReturnThis(),
+        addGroupBy: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         getRawMany: jest.fn().mockResolvedValue([
           { id: 1, name: 'Channel A', groupKey: 'male', count: '5' },
@@ -183,6 +187,7 @@ describe('ReportsService', () => {
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         groupBy: jest.fn().mockReturnThis(),
+        addGroupBy: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         getRawMany: jest.fn().mockResolvedValue([
           { id: 1, name: 'Program A', channelName: 'Channel A', groupKey: 'male', count: '5' },
