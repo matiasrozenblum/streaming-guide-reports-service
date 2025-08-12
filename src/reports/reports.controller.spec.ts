@@ -37,12 +37,12 @@ describe('ReportsController', () => {
   });
 
   it('should get top channels', async () => {
-    const result = await controller.getTopChannels('2024-01-01', '2024-01-31', undefined, 'gender', 'age');
-    expect(reportsService.getTopChannels).toHaveBeenCalledWith('2024-01-01', '2024-01-31', undefined, 'gender', 'age');
+    const result = await controller.getTopChannels('subscriptions', '2024-01-01', '2024-01-31', '5');
+    expect(reportsService.getTopChannels).toHaveBeenCalledWith({ metric: 'subscriptions', from: '2024-01-01', to: '2024-01-31', limit: 5 });
   });
 
   it('should get top programs', async () => {
-    const result = await controller.getTopPrograms('2024-01-01', '2024-01-31', undefined, 'gender', 'age');
-    expect(reportsService.getTopPrograms).toHaveBeenCalledWith('2024-01-01', '2024-01-31', undefined, 'gender', 'age');
+    const result = await controller.getTopPrograms('subscriptions', '2024-01-01', '2024-01-31', '5');
+    expect(reportsService.getTopPrograms).toHaveBeenCalledWith({ metric: 'subscriptions', from: '2024-01-01', to: '2024-01-31', limit: 5 });
   });
 }); 
