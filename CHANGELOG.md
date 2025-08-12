@@ -17,6 +17,11 @@ y este proyecto utiliza [SemVer](https://semver.org/lang/es/).
 
 ---
 
+## [1.2.0] - 2025-08-11
+
+### Changed
+- Several changes to PDF generation and PDF generation by channel
+
 ## [1.1.0] - 2025-08-03
 
 ### Added

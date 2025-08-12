@@ -1,9 +1,11 @@
-import { Controller, Post, Body, Get, Query, Res } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { Controller, Post, Body, Get, Query, Res, Param, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { getBrowser } from './puppeteer.util';
+import { testPostHogConnection } from './posthog.util';
 
+// Define the DTO inline since it doesn't exist in a separate file
 export class GenerateReportDto {
   type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary' | 'comprehensive-channel-summary';
   format: 'csv' | 'pdf';
@@ -102,5 +104,12 @@ export class ReportsController {
     @Query('groupBy') groupBy?: string,
   ) {
     return this.reportsService.getTopPrograms({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
+  }
+
+  @Get('test-posthog')
+  @ApiOperation({ summary: 'Test PostHog connection and configuration' })
+  @ApiResponse({ status: 200, description: 'PostHog connection test result' })
+  async testPostHog() {
+    return testPostHogConnection();
   }
 } 

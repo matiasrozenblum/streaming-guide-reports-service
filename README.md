@@ -122,6 +122,7 @@ PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 # PostHog Analytics
 POSTHOG_API_KEY=your_private_api_key_here
 POSTHOG_API_HOST=https://app.posthog.com
+POSTHOG_PROJECT_ID=ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK
 
 # Database (if needed for direct queries)
 DATABASE_URL=your_database_url
@@ -139,6 +140,7 @@ docker build -t streaming-guide-reports .
 docker run -p 3001:3001 \
   -e POSTHOG_API_KEY=your_key \
   -e POSTHOG_API_HOST=https://app.posthog.com \
+  -e POSTHOG_PROJECT_ID=ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK \
   streaming-guide-reports
 ```
 
@@ -171,6 +173,7 @@ $ npm run test:cov
 3. **Set environment variables** in Railway dashboard:
    - `POSTHOG_API_KEY`
    - `POSTHOG_API_HOST`
+   - `POSTHOG_PROJECT_ID`
    - `NODE_ENV=production`
 4. **Deploy** - Railway will automatically build and deploy using the Dockerfile
 
@@ -196,6 +199,7 @@ docker run -d \
   -p 3001:3001 \
   -e NODE_ENV=production \
   -e POSTHOG_API_KEY=your_key \
+  -e POSTHOG_PROJECT_ID=ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK \
   streaming-guide-reports:latest
 ```
 
@@ -246,6 +250,7 @@ brew install chromium  # macOS
 
 #### PostHog Connection Issues
 - Verify `POSTHOG_API_KEY` is correct
+- Check `POSTHOG_PROJECT_ID` matches your PostHog project
 - Check network connectivity to PostHog API
 - Ensure API key has proper permissions
 
