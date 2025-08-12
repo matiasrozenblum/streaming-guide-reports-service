@@ -2,370 +2,124 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.fetchYouTubeClicks = fetchYouTubeClicks;
 exports.aggregateClicksBy = aggregateClicksBy;
-exports.testPostHogConnection = testPostHogConnection;
-exports.validatePostHogConfig = validatePostHogConfig;
 const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY;
 const POSTHOG_API_HOST = process.env.POSTHOG_API_HOST || 'https://app.posthog.com';
-const ALTERNATIVE_API_HOSTS = [
-    'https://app.posthog.com',
-    'https://api.posthog.com',
-    'https://posthog.com',
-    'https://eu.posthog.com',
-];
 const POSTHOG_PROJECT_ID = process.env.POSTHOG_PROJECT_ID;
-if (!POSTHOG_PROJECT_ID) {
-    console.error('❌ POSTHOG_PROJECT_ID environment variable is not set. YouTube click data will not be available in reports.');
-}
-else if (POSTHOG_PROJECT_ID.length < 5) {
-    console.warn(`⚠️  POSTHOG_PROJECT_ID appears to be too short: ${POSTHOG_PROJECT_ID} (length: ${POSTHOG_PROJECT_ID.length})`);
-    console.warn(`⚠️  Expected length: 5+ characters, got: ${POSTHOG_PROJECT_ID.length}`);
-}
-console.log(`🔧 PostHog Project ID resolved:`, {
-    envValue: process.env.POSTHOG_PROJECT_ID,
-    envValueLength: process.env.POSTHOG_PROJECT_ID?.length || 0,
-    finalValue: POSTHOG_PROJECT_ID || 'NOT_SET',
-    finalValueLength: POSTHOG_PROJECT_ID?.length || 0,
-    isUsingEnvVar: !!process.env.POSTHOG_PROJECT_ID
-});
-if (!POSTHOG_API_KEY) {
-    console.warn('⚠️  POSTHOG_API_KEY environment variable is not set. YouTube click data will not be available in reports.');
-}
 async function fetchYouTubeClicks(eventType, from, to, limit = 1000) {
     if (!POSTHOG_API_KEY) {
-        console.warn('⚠️  No PostHog API key configured, skipping YouTube click data');
         return [];
     }
-    try {
-        console.log(`🔍 Fetching YouTube clicks for ${eventType} from ${from} to ${to}`);
-        const endpoints = [
-            {
-                url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
-                method: 'GET',
-                params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`
+    const endpoints = [
+        {
+            url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
+            method: 'GET',
+            params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+        },
+        {
+            url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
+            method: 'POST',
+            body: {
+                query: {
+                    kind: 'EventsQuery',
+                    select: ['*'],
+                    event: [eventType],
+                    after: `${from}T00:00:00Z`,
+                    before: `${to}T23:59:59Z`,
+                    limit: limit,
+                },
             },
-            {
-                url: `${POSTHOG_API_HOST}/api/events/`,
-                method: 'GET',
-                params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`
-            },
-            {
-                url: `${POSTHOG_API_HOST}/api/events/`,
-                method: 'GET',
-                params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&project_id=${POSTHOG_PROJECT_ID}`
-            },
-            {
-                url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/trend/`,
-                method: 'POST',
-                body: {
-                    events: [{
-                            id: eventType,
-                            type: 'events'
-                        }],
-                    date_from: from,
-                    date_to: to,
-                    limit: limit
+        },
+        {
+            url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/trend/`,
+            method: 'GET',
+            params: `?events=[{"id":"${eventType}","type":"events"}]&date_from=${from}&date_to=${to}&limit=${limit}`,
+        },
+        {
+            url: `${POSTHOG_API_HOST}/api/events/`,
+            method: 'GET',
+            params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+        },
+    ];
+    let lastError = null;
+    for (const endpoint of endpoints) {
+        try {
+            const fullUrl = endpoint.params ? `${endpoint.url}${endpoint.params}` : endpoint.url;
+            const fetchOptions = {
+                method: endpoint.method,
+                headers: {
+                    Authorization: `Bearer ${POSTHOG_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+            };
+            if (endpoint.body) {
+                fetchOptions.body = JSON.stringify(endpoint.body);
+            }
+            const res = await fetch(fullUrl, fetchOptions);
+            if (res.ok) {
+                const data = await res.json();
+                let events = [];
+                if (data.results && Array.isArray(data.results)) {
+                    events = data.results;
                 }
-            },
-        ];
-        console.log(`🔍 PostHog configuration:`, {
-            apiHost: POSTHOG_API_HOST,
-            projectId: POSTHOG_PROJECT_ID,
-            projectIdLength: POSTHOG_PROJECT_ID.length,
-            eventType,
-            from,
-            to,
-            limit
-        });
-        console.log(`🔍 Constructed endpoints:`, endpoints.map((endpoint, i) => `${i + 1}. ${endpoint.method} ${endpoint.url}${endpoint.params || ''}`));
-        let lastError = null;
-        for (const endpoint of endpoints) {
-            try {
-                const fullUrl = endpoint.params ? `${endpoint.url}${endpoint.params}` : endpoint.url;
-                console.log(`🔍 Trying PostHog endpoint: ${endpoint.method} ${fullUrl}`);
-                const fetchOptions = {
-                    method: endpoint.method,
-                    headers: {
-                        Authorization: `Bearer ${POSTHOG_API_KEY}`,
-                        'Content-Type': 'application/json',
-                    },
-                };
-                console.log(`🔐 Authentication: Bearer ${POSTHOG_API_KEY.substring(0, 10)}...`);
-                let finalUrl = endpoint.url;
-                if (endpoint.params) {
-                    finalUrl = `${endpoint.url}${endpoint.params}`;
+                else if (data.events && Array.isArray(data.events)) {
+                    events = data.events;
                 }
-                if (endpoint.body) {
-                    fetchOptions.body = JSON.stringify(endpoint.body);
+                else if (data.data && Array.isArray(data.data)) {
+                    events = data.data;
                 }
-                const res = await fetch(finalUrl, fetchOptions);
-                if (res.ok) {
-                    const data = await res.json();
-                    console.log(`📊 PostHog API response for ${eventType}:`, {
-                        status: res.status,
-                        dataKeys: Object.keys(data),
-                        resultsCount: data.results?.length || 0,
-                        totalCount: data.total_count || 'unknown',
-                        responseUrl: res.url,
-                        hasNext: !!data.next
-                    });
-                    let events = [];
-                    if (data.results && Array.isArray(data.results)) {
-                        events = data.results;
-                    }
-                    else if (data.events && Array.isArray(data.events)) {
-                        events = data.events;
-                    }
-                    else if (Array.isArray(data)) {
-                        events = data;
-                    }
-                    else if (data.result && Array.isArray(data.result)) {
-                        events = data.result;
-                    }
-                    else {
-                        let errorBody = '';
+                else if (Array.isArray(data)) {
+                    events = data;
+                }
+                if (data.next && events.length > 0) {
+                    let allEvents = [...events];
+                    let nextCursor = data.next;
+                    let pageCount = 1;
+                    while (nextCursor && pageCount < 10) {
                         try {
-                            errorBody = await res.text();
-                        }
-                        catch (e) {
-                            errorBody = 'Could not read error response body';
-                        }
-                        console.warn(`⚠️  Endpoint ${fullUrl} returned ${res.status}: ${res.statusText}`);
-                        console.warn(`⚠️  Error response body:`, errorBody);
-                        lastError = new Error(`PostHog API error: ${res.status} ${res.statusText} - ${errorBody}`);
-                        continue;
-                    }
-                    if (data.next && events.length > 0) {
-                        console.log(`📄 Found pagination cursor, fetching additional pages...`);
-                        let allEvents = [...events];
-                        let nextCursor = data.next;
-                        let pageCount = 1;
-                        while (nextCursor && pageCount < 10) {
-                            try {
-                                const nextUrl = `${endpoint.url}?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&after_cursor=${nextCursor}`;
-                                console.log(`📄 Fetching page ${pageCount + 1} with cursor: ${nextCursor}`);
-                                const nextRes = await fetch(nextUrl, fetchOptions);
-                                if (nextRes.ok) {
-                                    const nextData = await nextRes.json();
-                                    if (nextData.results && Array.isArray(nextData.results)) {
-                                        allEvents = [...allEvents, ...nextData.results];
-                                        nextCursor = nextData.next;
-                                        pageCount++;
-                                        console.log(`📄 Page ${pageCount} added ${nextData.results.length} events. Total so far: ${allEvents.length}`);
-                                    }
-                                    else {
-                                        break;
-                                    }
+                            const nextUrl = `${endpoint.url}?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&after_cursor=${nextCursor}`;
+                            const nextRes = await fetch(nextUrl, fetchOptions);
+                            if (nextRes.ok) {
+                                const nextData = await nextRes.json();
+                                if (nextData.results && Array.isArray(nextData.results)) {
+                                    allEvents = [...allEvents, ...nextData.results];
+                                    nextCursor = nextData.next;
+                                    pageCount++;
                                 }
                                 else {
-                                    console.warn(`⚠️  Failed to fetch page ${pageCount + 1}: ${nextRes.status}`);
                                     break;
                                 }
                             }
-                            catch (error) {
-                                console.warn(`⚠️  Error fetching page ${pageCount + 1}:`, error);
+                            else {
                                 break;
                             }
                         }
-                        events = allEvents;
-                        console.log(`📄 Pagination complete. Total events fetched: ${events.length} across ${pageCount} pages`);
-                    }
-                    console.log(`✅ Successfully fetched ${events.length} events for ${eventType} from ${fullUrl}`);
-                    if (events.length > 0) {
-                        console.log(`📝 Sample event:`, events[0]);
-                        console.log(`🔍 Event properties keys:`, Object.keys(events[0]?.properties || {}));
-                    }
-                    return events;
-                }
-                else {
-                    let errorBody = '';
-                    try {
-                        errorBody = await res.text();
-                    }
-                    catch (e) {
-                        errorBody = 'Could not read error response body';
-                    }
-                    console.warn(`⚠️  Endpoint ${fullUrl} returned ${res.status}: ${res.statusText}`);
-                    console.warn(`⚠️  Error response body:`, errorBody);
-                    lastError = new Error(`PostHog API error: ${res.status} ${res.statusText} - ${errorBody}`);
-                    continue;
-                }
-            }
-            catch (error) {
-                console.warn(`⚠️  Endpoint ${endpoint.url} failed:`, error);
-                lastError = error instanceof Error ? error : new Error(String(error));
-                continue;
-            }
-        }
-        throw lastError || new Error('All PostHog API endpoints failed');
-    }
-    catch (error) {
-        console.error(`❌ Error fetching PostHog data for ${eventType}:`, error);
-        return [];
-    }
-}
-async function aggregateClicksBy(events, groupBy) {
-    const counts = {};
-    for (const ev of events) {
-        const key = ev.properties[groupBy] || 'unknown';
-        counts[key] = (counts[key] || 0) + 1;
-    }
-    return counts;
-}
-async function testPostHogConnection() {
-    if (!POSTHOG_API_KEY) {
-        return {
-            success: false,
-            message: 'POSTHOG_API_KEY not configured'
-        };
-    }
-    try {
-        console.log(`🧪 Testing PostHog connection...`);
-        console.log(`🔑 API Key: ${POSTHOG_API_KEY.substring(0, 10)}...`);
-        console.log(`🌐 API Host: ${POSTHOG_API_HOST}`);
-        console.log(`📁 Project ID: ${POSTHOG_PROJECT_ID}`);
-        console.log(`📏 Project ID Length: ${POSTHOG_PROJECT_ID.length}`);
-        let lastError = null;
-        for (const apiHost of ALTERNATIVE_API_HOSTS) {
-            console.log(`🔍 Testing API host: ${apiHost}`);
-            const testEndpoints = [
-                {
-                    url: `${apiHost}/api/events/`,
-                    method: 'GET',
-                    description: 'Basic events endpoint',
-                    params: `?limit=1`
-                },
-                {
-                    url: `${apiHost}/api/events/`,
-                    method: 'GET',
-                    description: 'Events endpoint with project ID in query params',
-                    params: `?project_id=${POSTHOG_PROJECT_ID}&limit=1`
-                },
-                {
-                    url: `${apiHost}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
-                    method: 'GET',
-                    description: 'Project-specific events endpoint',
-                    params: `?limit=1`
-                },
-                {
-                    url: `${apiHost}/api/users/@me/`,
-                    method: 'GET',
-                    description: 'User info endpoint (API key validation)'
-                },
-            ];
-            for (const endpoint of testEndpoints) {
-                try {
-                    console.log(`🔍 Testing endpoint: ${endpoint.method} ${endpoint.url} (${endpoint.description})`);
-                    const fetchOptions = {
-                        method: endpoint.method,
-                        headers: {
-                            Authorization: `Bearer ${POSTHOG_API_KEY}`,
-                            'Content-Type': 'application/json',
-                        },
-                    };
-                    console.log(`🔐 Authentication: Bearer ${POSTHOG_API_KEY.substring(0, 10)}...`);
-                    let finalUrl = endpoint.url;
-                    if (endpoint.params) {
-                        finalUrl = `${endpoint.url}${endpoint.params}`;
-                    }
-                    const res = await fetch(finalUrl, fetchOptions);
-                    if (res.ok) {
-                        const data = await res.json();
-                        console.log(`✅ PostHog connection successful with API host: ${apiHost}`);
-                        console.log(`✅ Working endpoint: ${endpoint.url} (${endpoint.description})`);
-                        console.log(`📊 Response keys:`, Object.keys(data));
-                        return {
-                            success: true,
-                            message: `PostHog connection successful with API host: ${apiHost} and endpoint: ${endpoint.url}`,
-                            details: {
-                                workingApiHost: apiHost,
-                                workingEndpoint: endpoint.url,
-                                workingMethod: endpoint.method,
-                                description: endpoint.description,
-                                status: res.status,
-                                responseKeys: Object.keys(data),
-                                hasResults: !!data.results,
-                                resultsCount: data.results?.length || 0
-                            }
-                        };
-                    }
-                    else {
-                        let errorBody = '';
-                        try {
-                            errorBody = await res.text();
+                        catch (error) {
+                            break;
                         }
-                        catch (e) {
-                            errorBody = 'Could not read error response body';
-                        }
-                        console.warn(`⚠️  Endpoint ${endpoint.url} on ${apiHost} returned ${res.status}: ${res.statusText}`);
-                        console.warn(`⚠️  Error response body:`, errorBody);
-                        lastError = new Error(`HTTP ${res.status}: ${res.statusText} - ${errorBody}`);
-                        continue;
                     }
+                    events = allEvents;
                 }
-                catch (error) {
-                    console.warn(`⚠️  Endpoint ${endpoint.url} on ${apiHost} failed:`, error);
-                    lastError = error instanceof Error ? error : new Error(String(error));
-                    continue;
-                }
+                return events;
             }
-            console.warn(`⚠️  All endpoints failed for API host: ${apiHost}`);
+            else {
+                const errorBody = await res.text();
+                lastError = new Error(`HTTP ${res.status}: ${res.statusText} - ${errorBody}`);
+            }
         }
-        return {
-            success: false,
-            message: `All PostHog API hosts and endpoints failed. Last error: ${lastError?.message || 'Unknown error'}`,
-            details: {
-                testedApiHosts: ALTERNATIVE_API_HOSTS,
-                lastError: lastError?.message || 'Unknown error',
-                projectId: POSTHOG_PROJECT_ID,
-                projectIdLength: POSTHOG_PROJECT_ID.length
-            }
-        };
+        catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+        }
     }
-    catch (error) {
-        console.error(`❌ PostHog connection test failed:`, error);
-        return {
-            success: false,
-            message: `Connection failed: ${error instanceof Error ? error.message : String(error)}`,
-            details: { error: error instanceof Error ? error.message : String(error) }
-        };
-    }
+    throw lastError || new Error('All PostHog API endpoints failed');
 }
-function validatePostHogConfig() {
-    const issues = [];
-    if (!POSTHOG_API_KEY) {
-        issues.push('POSTHOG_API_KEY is not set');
-    }
-    else if (POSTHOG_API_KEY.length < 10) {
-        issues.push('POSTHOG_API_KEY appears to be too short');
-    }
-    if (!POSTHOG_API_HOST) {
-        issues.push('POSTHOG_API_HOST is not set');
-    }
-    else if (!POSTHOG_API_HOST.startsWith('http')) {
-        issues.push('POSTHOG_API_HOST should be a valid URL');
-    }
-    if (!POSTHOG_PROJECT_ID) {
-        issues.push('POSTHOG_PROJECT_ID is not set');
-    }
-    else if (POSTHOG_PROJECT_ID.length < 5) {
-        issues.push(`POSTHOG_PROJECT_ID appears to be too short: ${POSTHOG_PROJECT_ID} (length: ${POSTHOG_PROJECT_ID.length})`);
-        issues.push('Expected length: 5+ characters');
-    }
-    return {
-        isValid: issues.length === 0,
-        issues,
-        config: {
-            apiKey: POSTHOG_API_KEY || 'NOT_SET',
-            apiHost: POSTHOG_API_HOST || 'NOT_SET',
-            projectId: POSTHOG_PROJECT_ID || 'NOT_SET'
-        },
-        environment: {
-            envProjectId: process.env.POSTHOG_PROJECT_ID,
-            envProjectIdLength: process.env.POSTHOG_PROJECT_ID?.length || 0,
-            finalProjectId: POSTHOG_PROJECT_ID || 'NOT_SET',
-            finalProjectIdLength: POSTHOG_PROJECT_ID?.length || 0,
-            isUsingEnvVar: !!process.env.POSTHOG_PROJECT_ID
+async function aggregateClicksBy(events, property) {
+    const aggregated = {};
+    for (const event of events) {
+        const value = event.properties?.[property];
+        if (value) {
+            aggregated[value] = (aggregated[value] || 0) + 1;
         }
-    };
+    }
+    return aggregated;
 }
 //# sourceMappingURL=posthog.util.js.map

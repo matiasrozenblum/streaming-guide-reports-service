@@ -583,281 +583,288 @@ export class ReportsService {
     return ageGroups;
   }
 
-  async getTopChannels({ metric, from, to, limit, groupBy }: { metric: 'subscriptions' | 'youtube_clicks', from: string, to: string, limit: number, groupBy?: string }) {
-    if (groupBy === 'gender' || groupBy === 'age') {
-      if (metric === 'subscriptions') {
-        // Group subscriptions by channel and gender/age
-        const qb = this.dataSource
-          .createQueryBuilder('channel', 'channel')
-          .leftJoin('channel.programs', 'program')
-          .leftJoin('program.subscriptions', 'subscription')
-          .leftJoin('subscription.user', 'user')
-          .select('channel.id', 'id')
-          .addSelect('channel.name', 'name')
-          .addSelect(groupBy === 'gender' ? `
-            CASE
-              WHEN "user"."gender" IS NULL THEN 'rather_not_say'
-              ELSE "user"."gender"
-            END
-          ` : `
-            CASE
-              WHEN "user"."birth_date" IS NULL THEN 'unknown'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 18 THEN 'under18'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 30 THEN 'age18to30'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 45 THEN 'age30to45'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 60 THEN 'age45to60'
-              ELSE 'over60'
-            END
-          `, 'groupKey')
-          .addSelect('COUNT(subscription.id)', 'count')
-          .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
-          .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
-          .andWhere('subscription.isActive = :isActive', { isActive: true })
-          .groupBy('channel.id, channel.name')
-          .addGroupBy('"groupKey"')
-          .orderBy('COUNT(subscription.id)', 'DESC');
+  async getTopChannels(
+    from: string,
+    to: string,
+    channelId?: number,
+    gender?: string,
+    age?: string
+  ) {
+    const queryBuilder = this.dataSource
+      .createQueryBuilder(Channel, 'channel')
+      .leftJoin('channel.programs', 'program')
+      .leftJoin('program.subscriptions', 'subscription')
+      .leftJoin('subscription.user', 'user')
+      .where('subscription.created_at >= :from', { from: `${from}T00:00:00Z` })
+      .andWhere('subscription.created_at <= :to', { to: `${to}T23:59:59Z` })
+      .andWhere('subscription.is_active = :isActive', { isActive: true });
 
-        const raw = await qb.getRawMany();
-        // Aggregate into { name, counts: { gender/age: count } }
-        const map = new Map();
-        for (const row of raw) {
-          if (!map.has(row.id)) {
-            map.set(row.id, { id: row.id, name: row.name, counts: {} });
-          }
-          (map.get(row.id).counts as any)[row.groupKey || 'unknown'] = parseInt(row.count, 10);
-        }
-        // Sort by total and limit
-        const arr = Array.from(map.values());
-        arr.sort((a, b) => {
-          const totalA = Object.values(a.counts).reduce((sum: number, v) => sum + Number(v), 0);
-          const totalB = Object.values(b.counts).reduce((sum: number, v) => sum + Number(v), 0);
-          return Number(totalB) - Number(totalA);
-        });
-        return arr.slice(0, limit);
-      } else if (metric === 'youtube_clicks') {
-        const [live, deferred] = await Promise.all([
-          fetchYouTubeClicks('click_youtube_live', from, to, 10000),
-          fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
-        ]);
-        const map = new Map();
-        for (const row of [...live, ...deferred]) {
-          const channel = row.properties.channel_name || 'unknown';
-          let groupKey = 'unknown';
-          if (groupBy === 'gender') {
-            groupKey = row.properties.user_gender || 'unknown';
-          } else if (groupBy === 'age') {
-            const age = Number(row.properties.user_age);
-            if (isNaN(age)) groupKey = 'unknown';
-            else if (age < 18) groupKey = 'under18';
-            else if (age < 30) groupKey = 'age18to30';
-            else if (age < 45) groupKey = 'age30to45';
-            else if (age < 60) groupKey = 'age45to60';
-            else groupKey = 'over60';
-          }
-          if (!map.has(channel)) map.set(channel, { name: channel, counts: {} as Record<string, number> });
-          (map.get(channel).counts as any)[groupKey] = Number((map.get(channel).counts as any)[groupKey] ?? 0) + 1;
-        }
-        const arr = Array.from(map.values());
-        arr.sort((a, b) => {
-          const totalA = Object.values(a.counts).reduce((sum: number, v) => sum + Number(v), 0);
-          const totalB = Object.values(b.counts).reduce((sum: number, v) => sum + Number(v), 0);
-          return Number(totalB) - Number(totalA);
-        });
-        return arr.slice(0, limit);
-      }
-      return [];
+    if (channelId) {
+      queryBuilder.andWhere('channel.id = :channelId', { channelId });
     }
-    // Default (no groupBy): existing logic
-    if (metric === 'subscriptions') {
-      // Top channels by subscriptions from DB
-      const results = await this.dataSource
-        .createQueryBuilder('channel', 'channel')
-        .leftJoin('channel.programs', 'program')
-        .leftJoin('program.subscriptions', 'subscription')
-        .select('channel.id', 'id')
-        .addSelect('channel.name', 'name')
-        .addSelect('COUNT(subscription.id)', 'count')
-        .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
-        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
-        .andWhere('subscription.isActive = :isActive', { isActive: true })
-        .groupBy('channel.id')
-        .addGroupBy('channel.name')
-        .orderBy('count', 'DESC')
-        .limit(limit)
-        .getRawMany();
-      return results;
-    } else if (metric === 'youtube_clicks') {
-      // Top channels by YouTube clicks from PostHog (aggregate live + deferred)
-      console.log(`🔍 Fetching YouTube clicks for channels from ${from} to ${to}`);
-      
-      const [live, deferred] = await Promise.all([
-        fetchYouTubeClicks('click_youtube_live', from, to, 10000),
-        fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
-      ]);
-      
-      console.log(`📊 YouTube clicks data received:`, {
-        liveCount: live.length,
-        deferredCount: deferred.length,
-        totalEvents: live.length + deferred.length
-      });
-      
-      // Aggregate by channel name
-      const map = new Map();
-      for (const row of [...live, ...deferred]) {
-        const key = row.properties.channel_name || 'unknown';
-        if (!map.has(key)) map.set(key, { name: key, count: 0 });
-        map.get(key).count += 1;
-      }
-      
-      const result = Array.from(map.values())
-        .sort((a, b) => b.count - a.count)
-        .slice(0, limit);
-      
-      console.log(`✅ Aggregated YouTube clicks result:`, result);
-      return result;
+
+    if (gender && gender !== 'all') {
+      queryBuilder.andWhere('user.gender = :gender', { gender });
     }
-    return [];
+
+    if (age && age !== 'all') {
+      switch (age) {
+        case 'under18':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 18');
+          break;
+        case 'age18to30':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") >= 18 AND EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 30');
+          break;
+        case 'age30to45':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") >= 30 AND EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 45');
+          break;
+        case 'age45to60':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") >= 45 AND EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 60');
+          break;
+        case 'over60':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") >= 60');
+          break;
+      }
+    }
+
+    // Get subscription counts
+    const subscriptionResults = await queryBuilder
+      .select([
+        'channel.id',
+        'channel.name',
+        `CASE
+          WHEN "user"."gender" IS NULL THEN 'rather_not_say'
+          ELSE "user"."gender"
+        END AS "groupKey"`,
+        'COUNT(subscription.id) as count'
+      ])
+      .groupBy('channel.id, channel.name')
+      .addGroupBy('"groupKey"')
+      .orderBy('COUNT(subscription.id)', 'DESC')
+      .getRawMany();
+
+    // Get YouTube click counts
+    const [live, deferred] = await Promise.all([
+      fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+      fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
+    ]);
+
+    // Aggregate YouTube clicks by channel and gender
+    const youtubeClicksByChannel: Record<string, Record<string, number>> = {};
+    
+    [...live, ...deferred].forEach(event => {
+      const channelName = event.properties?.channel_name;
+      const userGender = event.properties?.user_gender || 'rather_not_say';
+      
+      if (channelName) {
+        if (!youtubeClicksByChannel[channelName]) {
+          youtubeClicksByChannel[channelName] = {};
+        }
+        youtubeClicksByChannel[channelName][userGender] = (youtubeClicksByChannel[channelName][userGender] || 0) + 1;
+      }
+    });
+
+    // Combine subscription and YouTube click data
+    const combinedResults: any[] = [];
+    const processedChannels = new Set<string>();
+
+    // Process subscription results
+    subscriptionResults.forEach(result => {
+      const channelName = result.name;
+      const gender = result.groupKey;
+      const subscriptionCount = parseInt(result.count);
+      
+      if (!processedChannels.has(channelName)) {
+        processedChannels.add(channelName);
+        
+        const youtubeClicks = youtubeClicksByChannel[channelName] || {};
+        const totalYoutubeClicks = Object.values(youtubeClicks).reduce((sum: number, count: number) => sum + count, 0);
+        
+        combinedResults.push({
+          channel: channelName,
+          subscriptions: subscriptionCount,
+          youtubeClicks: totalYoutubeClicks,
+          breakdown: {
+            subscriptions: { [gender]: subscriptionCount },
+            youtubeClicks: youtubeClicks
+          }
+        });
+      } else {
+        // Add gender breakdown to existing channel
+        const existingChannel = combinedResults.find(r => r.channel === channelName);
+        if (existingChannel) {
+          existingChannel.breakdown.subscriptions[gender] = subscriptionCount;
+          existingChannel.subscriptions += subscriptionCount;
+        }
+      }
+    });
+
+    // Add channels that only have YouTube clicks
+    Object.keys(youtubeClicksByChannel).forEach(channelName => {
+      if (!processedChannels.has(channelName)) {
+        const youtubeClicks = youtubeClicksByChannel[channelName];
+        const totalYoutubeClicks = Object.values(youtubeClicks).reduce((sum: number, count: number) => sum + count, 0);
+        
+        combinedResults.push({
+          channel: channelName,
+          subscriptions: 0,
+          youtubeClicks: totalYoutubeClicks,
+          breakdown: {
+            subscriptions: {},
+            youtubeClicks: youtubeClicks
+          }
+        });
+      }
+    });
+
+    // Sort by total engagement (subscriptions + YouTube clicks)
+    return combinedResults
+      .sort((a, b) => (b.subscriptions + b.youtubeClicks) - (a.subscriptions + a.youtubeClicks))
+      .slice(0, 5);
   }
 
-  async getTopPrograms({ metric, from, to, limit, groupBy }: { metric: 'subscriptions' | 'youtube_clicks', from: string, to: string, limit: number, groupBy?: string }) {
-    if (groupBy === 'gender' || groupBy === 'age') {
-      if (metric === 'subscriptions') {
-        // Group subscriptions by program and gender/age
-        const qb = this.dataSource
-          .createQueryBuilder('program', 'program')
-          .leftJoin('program.subscriptions', 'subscription')
-          .leftJoin('program.channel', 'channel')
-          .leftJoin('subscription.user', 'user')
-          .select('program.id', 'id')
-          .addSelect('program.name', 'name')
-          .addSelect('channel.name', 'channelName')
-          .addSelect(groupBy === 'gender' ? `
-            CASE
-              WHEN "user"."gender" IS NULL THEN 'rather_not_say'
-              ELSE "user"."gender"
-            END
-          ` : `
-            CASE
-              WHEN "user"."birth_date" IS NULL THEN 'unknown'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 18 THEN 'under18'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 30 THEN 'age18to30'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 45 THEN 'age30to45'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 60 THEN 'age45to60'
-              ELSE 'over60'
-            END
-          `, 'groupKey')
-          .addSelect('COUNT(subscription.id)', 'count')
-          .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
-          .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
-          .andWhere('subscription.isActive = :isActive', { isActive: true })
-          .groupBy('program.id, program.name, channel.name')
-          .addGroupBy('"groupKey"')
-          .orderBy('COUNT(subscription.id)', 'DESC');
+  async getTopPrograms(
+    from: string,
+    to: string,
+    channelId?: number,
+    gender?: string,
+    age?: string
+  ) {
+    const queryBuilder = this.dataSource
+      .createQueryBuilder(Program, 'program')
+      .leftJoin('program.channel', 'channel')
+      .leftJoin('program.subscriptions', 'subscription')
+      .leftJoin('subscription.user', 'user')
+      .where('subscription.created_at >= :from', { from: `${from}T00:00:00Z` })
+      .andWhere('subscription.created_at <= :to', { to: `${to}T23:59:59Z` })
+      .andWhere('subscription.is_active = :isActive', { isActive: true });
 
-        const raw = await qb.getRawMany();
-        // Aggregate into { name, channelName, counts: { gender/age: count } }
-        const map = new Map();
-        for (const row of raw) {
-          if (!map.has(row.id)) {
-            map.set(row.id, { id: row.id, name: row.name, channelName: row.channelName, counts: {} as Record<string, number> });
-          }
-          map.get(row.id).counts[row.groupKey || 'unknown'] = parseInt(row.count, 10);
-        }
-        // Sort by total and limit
-        const arr = Array.from(map.values());
-        arr.sort((a, b) => {
-          const totalA = Object.values(a.counts).reduce((sum: number, v) => sum + Number(v), 0);
-          const totalB = Object.values(b.counts).reduce((sum: number, v) => sum + Number(v), 0);
-          return Number(totalB) - Number(totalA);
-        });
-        return arr.slice(0, limit);
-      } else if (metric === 'youtube_clicks') {
-        const [live, deferred] = await Promise.all([
-          fetchYouTubeClicks('click_youtube_live', from, to, 10000),
-          fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
-        ]);
-        const map = new Map();
-        for (const row of [...live, ...deferred]) {
-          const program = row.properties.program_name || 'unknown';
-          const channel = row.properties.channel_name || 'unknown';
-          const key = `${program}|||${channel}`;
-          let groupKey = 'unknown';
-          if (groupBy === 'gender') {
-            groupKey = row.properties.user_gender || 'unknown';
-          } else if (groupBy === 'age') {
-            const age = Number(row.properties.user_age);
-            if (isNaN(age)) groupKey = 'unknown';
-            else if (age < 18) groupKey = 'under18';
-            else if (age < 30) groupKey = 'age18to30';
-            else if (age < 45) groupKey = 'age30to45';
-            else if (age < 60) groupKey = 'age45to60';
-            else groupKey = 'over60';
-          }
-          if (!map.has(key)) map.set(key, { name: program, channelName: channel, counts: {} as Record<string, number> });
-          map.get(key).counts[groupKey] = (map.get(key).counts[groupKey] || 0) + 1;
-        }
-        const arr = Array.from(map.values());
-        arr.sort((a, b) => {
-          const totalA = Object.values(a.counts).reduce((sum: number, v) => sum + Number(v), 0);
-          const totalB = Object.values(b.counts).reduce((sum: number, v) => sum + Number(v), 0);
-          return Number(totalB) - Number(totalA);
-        });
-        return arr.slice(0, limit);
-      }
-      return [];
+    if (channelId) {
+      queryBuilder.andWhere('channel.id = :channelId', { channelId });
     }
-    // Default (no groupBy): existing logic
-    if (metric === 'subscriptions') {
-      // Top programs by subscriptions from DB
-      const results = await this.dataSource
-        .createQueryBuilder('program', 'program')
-        .leftJoin('program.subscriptions', 'subscription')
-        .leftJoin('program.channel', 'channel')
-        .select('program.id', 'id')
-        .addSelect('program.name', 'name')
-        .addSelect('channel.name', 'channelName')
-        .addSelect('COUNT(subscription.id)', 'count')
-        .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
-        .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
-        .andWhere('subscription.isActive = :isActive', { isActive: true })
-        .groupBy('program.id')
-        .addGroupBy('program.name')
-        .addGroupBy('channel.name')
-        .orderBy('count', 'DESC')
-        .limit(limit)
-        .getRawMany();
-      return results;
-    } else if (metric === 'youtube_clicks') {
-      // Top programs by YouTube clicks from PostHog (aggregate live + deferred)
-      console.log(`🔍 Fetching YouTube clicks for programs from ${from} to ${to}`);
-      
-      const [live, deferred] = await Promise.all([
-        fetchYouTubeClicks('click_youtube_live', from, to, 10000),
-        fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
-      ]);
-      
-      console.log(`📊 YouTube clicks data received for programs:`, {
-        liveCount: live.length,
-        deferredCount: deferred.length,
-        totalEvents: live.length + deferred.length
-      });
-      
-      // Aggregate by program name
-      const map = new Map();
-      for (const row of [...live, ...deferred]) {
-        const key = row.properties.program_name || 'unknown';
-        if (!map.has(key)) map.set(key, { name: key, count: 0 });
-        map.get(key).count += 1;
-      }
-      
-      const result = Array.from(map.values())
-        .sort((a, b) => b.count - a.count)
-        .slice(0, limit);
-      
-      console.log(`✅ Aggregated YouTube clicks result for programs:`, result);
-      return result;
+
+    if (gender && gender !== 'all') {
+      queryBuilder.andWhere('user.gender = :gender', { gender });
     }
-    return [];
+
+    if (age && age !== 'all') {
+      switch (age) {
+        case 'under18':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 18');
+          break;
+        case 'age18to30':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") >= 18 AND EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 30');
+          break;
+        case 'age30to45':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") >= 30 AND EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 45');
+          break;
+        case 'age45to60':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") >= 45 AND EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 60');
+          break;
+        case 'over60':
+          queryBuilder.andWhere('EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") >= 60');
+          break;
+      }
+    }
+
+    // Get subscription counts
+    const subscriptionResults = await queryBuilder
+      .select([
+        'program.id',
+        'program.name',
+        'channel.name as channelName',
+        `CASE
+          WHEN "user"."gender" IS NULL THEN 'rather_not_say'
+          ELSE "user"."gender"
+        END AS "groupKey"`,
+        'COUNT(subscription.id) as count'
+      ])
+      .groupBy('program.id, program.name, channel.name')
+      .addGroupBy('"groupKey"')
+      .orderBy('COUNT(subscription.id)', 'DESC')
+      .getRawMany();
+
+    // Get YouTube click counts
+    const [live, deferred] = await Promise.all([
+      fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+      fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
+    ]);
+
+    // Aggregate YouTube clicks by program and gender
+    const youtubeClicksByProgram: Record<string, Record<string, number>> = {};
+    
+    [...live, ...deferred].forEach(event => {
+      const programName = event.properties?.program_name;
+      const userGender = event.properties?.user_gender || 'rather_not_say';
+      
+      if (programName) {
+        if (!youtubeClicksByProgram[programName]) {
+          youtubeClicksByProgram[programName] = {};
+        }
+        youtubeClicksByProgram[programName][userGender] = (youtubeClicksByProgram[programName][userGender] || 0) + 1;
+      }
+    });
+
+    // Combine subscription and YouTube click data
+    const combinedResults: any[] = [];
+    const processedPrograms = new Set<string>();
+
+    // Process subscription results
+    subscriptionResults.forEach(result => {
+      const programName = result.name;
+      const channelName = result.channelName;
+      const gender = result.groupKey;
+      const subscriptionCount = parseInt(result.count);
+      
+      if (!processedPrograms.has(programName)) {
+        processedPrograms.add(programName);
+        
+        const youtubeClicks = youtubeClicksByProgram[programName] || {};
+        const totalYoutubeClicks = Object.values(youtubeClicks).reduce((sum: number, count: number) => sum + count, 0);
+        
+        combinedResults.push({
+          program: programName,
+          channel: channelName,
+          subscriptions: subscriptionCount,
+          youtubeClicks: totalYoutubeClicks,
+          breakdown: {
+            subscriptions: { [gender]: subscriptionCount },
+            youtubeClicks: youtubeClicks
+          }
+        });
+      } else {
+        // Add gender breakdown to existing program
+        const existingProgram = combinedResults.find(r => r.program === programName);
+        if (existingProgram) {
+          existingProgram.breakdown.subscriptions[gender] = subscriptionCount;
+          existingProgram.subscriptions += subscriptionCount;
+        }
+      }
+    });
+
+    // Add programs that only have YouTube clicks
+    Object.keys(youtubeClicksByProgram).forEach(programName => {
+      if (!processedPrograms.has(programName)) {
+        const youtubeClicks = youtubeClicksByProgram[programName];
+        const totalYoutubeClicks = Object.values(youtubeClicks).reduce((sum: number, count: number) => sum + count, 0);
+        
+        combinedResults.push({
+          program: programName,
+          channel: 'Unknown',
+          subscriptions: 0,
+          youtubeClicks: totalYoutubeClicks,
+          breakdown: {
+            subscriptions: {},
+            youtubeClicks: youtubeClicks
+          }
+        });
+      }
+    });
+
+    // Sort by total engagement (subscriptions + YouTube clicks)
+    return combinedResults
+      .sort((a, b) => (b.subscriptions + b.youtubeClicks) - (a.subscriptions + a.youtubeClicks))
+      .slice(0, 5);
   }
 
   async generatePeriodicReport(params: { 
@@ -1185,28 +1192,13 @@ export class ReportsService {
     }
 
     // Get top 5 channels by subscriptions
-    const topChannelsBySubscriptions = await this.getTopChannels({
-      metric: 'subscriptions',
-      from,
-      to,
-      limit: 5
-    });
+    const topChannelsBySubscriptions = await this.getTopChannels(from, to);
 
     // Get top 5 channels by live YouTube clicks
-    const topChannelsByLiveClicks = await this.getTopChannels({
-      metric: 'youtube_clicks',
-      from,
-      to,
-      limit: 5
-    });
+    const topChannelsByLiveClicks = await this.getTopChannels(from, to);
 
     // Get top 5 channels by deferred YouTube clicks
-    const topChannelsByDeferredClicks = await this.getTopChannels({
-      metric: 'youtube_clicks',
-      from,
-      to,
-      limit: 5
-    });
+    const topChannelsByDeferredClicks = await this.getTopChannels(from, to);
 
     // Find channel position in each ranking
     const channelPositionBySubscriptions = topChannelsBySubscriptions.findIndex(c => c.id === channelId) + 1;
@@ -1280,13 +1272,7 @@ export class ReportsService {
     }
 
     // Get top 5 programs for this channel by subscriptions
-    const topProgramsBySubscriptions = await this.getTopPrograms({
-      metric: 'subscriptions',
-      from,
-      to,
-      limit: 5,
-      groupBy: 'program'
-    });
+    const topProgramsBySubscriptions = await this.getTopPrograms(from, to);
 
     // Filter programs to only show those from this channel
     // For subscriptions, we need to filter by channelName since that's what getTopPrograms returns
@@ -1320,13 +1306,7 @@ export class ReportsService {
     }
 
     // Get top 5 programs for this channel by YouTube clicks
-    const topProgramsByClicks = await this.getTopPrograms({
-      metric: 'youtube_clicks',
-      from,
-      to,
-      limit: 5,
-      groupBy: 'program'
-    });
+    const topProgramsByClicks = await this.getTopPrograms(from, to);
 
     // Filter programs to only show those from this channel
     // For YouTube clicks, we need to filter by channel name since there's no channelId

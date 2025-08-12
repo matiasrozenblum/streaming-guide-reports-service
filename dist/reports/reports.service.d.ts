@@ -22,20 +22,8 @@ export declare class ReportsService {
     private buildSubscriptionsReportHtml;
     private htmlToPdfBuffer;
     private getSubscriptionsByAge;
-    getTopChannels({ metric, from, to, limit, groupBy }: {
-        metric: 'subscriptions' | 'youtube_clicks';
-        from: string;
-        to: string;
-        limit: number;
-        groupBy?: string;
-    }): Promise<any[]>;
-    getTopPrograms({ metric, from, to, limit, groupBy }: {
-        metric: 'subscriptions' | 'youtube_clicks';
-        from: string;
-        to: string;
-        limit: number;
-        groupBy?: string;
-    }): Promise<any[]>;
+    getTopChannels(from: string, to: string, channelId?: number, gender?: string, age?: string): Promise<any[]>;
+    getTopPrograms(from: string, to: string, channelId?: number, gender?: string, age?: string): Promise<any[]>;
     generatePeriodicReport(params: {
         from: string;
         to: string;
