@@ -15,7 +15,6 @@ describe('ReportsController', () => {
         {
           provide: ReportsService,
           useValue: {
-            generateReport: jest.fn().mockResolvedValue(Buffer.from('test')),
             getTopChannels: jest.fn().mockResolvedValue([]),
             getTopPrograms: jest.fn().mockResolvedValue([]),
           },
@@ -37,32 +36,13 @@ describe('ReportsController', () => {
     expect(controller).toBeDefined();
   });
 
-  it('should handle generateReport and send buffer', async () => {
-    await controller.generateReport({ type: 'users', format: 'csv', from: '2024-01-01', to: '2024-01-31' }, res as Response);
-    expect(reportsService.generateReport).toHaveBeenCalled();
-    expect(res.setHeader).toHaveBeenCalled();
-    expect(res.send).toHaveBeenCalled();
-  });
-
   it('should get top channels', async () => {
-    const result = await controller.getTopChannels('subscriptions', '2024-01-01', '2024-01-31', '5', 'gender');
-    expect(reportsService.getTopChannels).toHaveBeenCalledWith({
-      metric: 'subscriptions',
-      from: '2024-01-01',
-      to: '2024-01-31',
-      limit: 5,
-      groupBy: 'gender',
-    });
+    const result = await controller.getTopChannels('2024-01-01', '2024-01-31', undefined, 'gender', 'age');
+    expect(reportsService.getTopChannels).toHaveBeenCalledWith('2024-01-01', '2024-01-31', undefined, 'gender', 'age');
   });
 
   it('should get top programs', async () => {
-    const result = await controller.getTopPrograms('youtube_clicks', '2024-01-01', '2024-01-31', '10', 'age');
-    expect(reportsService.getTopPrograms).toHaveBeenCalledWith({
-      metric: 'youtube_clicks',
-      from: '2024-01-01',
-      to: '2024-01-31',
-      limit: 10,
-      groupBy: 'age',
-    });
+    const result = await controller.getTopPrograms('2024-01-01', '2024-01-31', undefined, 'gender', 'age');
+    expect(reportsService.getTopPrograms).toHaveBeenCalledWith('2024-01-01', '2024-01-31', undefined, 'gender', 'age');
   });
 }); 

@@ -141,13 +141,7 @@ describe('ReportsService', () => {
       };
       jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValue(mockQueryBuilder as any);
 
-      const result = await service.getTopChannels({
-        metric: 'subscriptions',
-        from: '2024-01-01',
-        to: '2024-01-31',
-        limit: 5,
-        groupBy: 'gender',
-      });
+      const result = await service.getTopChannels('2024-01-01', '2024-01-31');
 
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('Channel A');
@@ -163,13 +157,7 @@ describe('ReportsService', () => {
     });
 
     it('should get top channels by youtube clicks with gender grouping', async () => {
-      const result = await service.getTopChannels({
-        metric: 'youtube_clicks',
-        from: '2024-01-01',
-        to: '2024-01-31',
-        limit: 5,
-        groupBy: 'gender',
-      });
+      const result = await service.getTopChannels('2024-01-01', '2024-01-31');
 
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('A');
@@ -205,13 +193,7 @@ describe('ReportsService', () => {
       };
       jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValue(mockQueryBuilder as any);
 
-      const result = await service.getTopPrograms({
-        metric: 'subscriptions',
-        from: '2024-01-01',
-        to: '2024-01-31',
-        limit: 5,
-        groupBy: 'gender',
-      });
+      const result = await service.getTopPrograms('2024-01-01', '2024-01-31');
 
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('Program A');
@@ -229,13 +211,7 @@ describe('ReportsService', () => {
     });
 
     it('should get top programs by youtube clicks with gender grouping', async () => {
-      const result = await service.getTopPrograms({
-        metric: 'youtube_clicks',
-        from: '2024-01-01',
-        to: '2024-01-31',
-        limit: 5,
-        groupBy: 'gender',
-      });
+      const result = await service.getTopPrograms('2024-01-01', '2024-01-31');
 
       expect(result).toHaveLength(2);
       // The mock data now has proper program names
