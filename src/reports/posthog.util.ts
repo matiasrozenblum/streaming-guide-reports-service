@@ -48,25 +48,20 @@ export type PostHogClickEvent = {
   timestamp: string;
 };
 
-export async function fetchYouTubeClicks({
-  from,
-  to,
-  eventType,
-  breakdownBy = 'channel_name',
-  limit = 10000,
-}: {
-  from: string;
-  to: string;
-  eventType: 'click_youtube_live' | 'click_youtube_deferred';
-  breakdownBy?: 'channel_name' | 'program_name';
-  limit?: number;
-}): Promise<PostHogClickEvent[]> {
+export async function fetchYouTubeClicks(
+  eventType: 'click_youtube_live' | 'click_youtube_deferred',
+  from: string,
+  to: string,
+  limit: number = 1000 // Increased default limit to get more data
+): Promise<PostHogClickEvent[]> {
   if (!POSTHOG_API_KEY) {
-    console.warn(`⚠️  Skipping PostHog API call for ${eventType} - no API key configured`);
+    console.warn('⚠️  No PostHog API key configured, skipping YouTube click data');
     return [];
   }
 
   try {
+    console.log(`🔍 Fetching YouTube clicks for ${eventType} from ${from} to ${to}`);
+    
     // Try multiple endpoint formats to find the correct one
     // Based on PostHog API documentation: https://posthog.com/docs/api
     const endpoints = [
@@ -151,7 +146,8 @@ export async function fetchYouTubeClicks({
             dataKeys: Object.keys(data),
             resultsCount: data.results?.length || 0,
             totalCount: data.total_count || 'unknown',
-            responseUrl: res.url
+            responseUrl: res.url,
+            hasNext: !!data.next
           });
           
           // Handle different possible response formats
@@ -178,6 +174,43 @@ export async function fetchYouTubeClicks({
             
             lastError = new Error(`PostHog API error: ${res.status} ${res.statusText} - ${errorBody}`);
             continue; // Try next endpoint
+          }
+          
+          // If we have a 'next' cursor, fetch additional pages to get all data
+          if (data.next && events.length > 0) {
+            console.log(`📄 Found pagination cursor, fetching additional pages...`);
+            let allEvents = [...events];
+            let nextCursor = data.next;
+            let pageCount = 1;
+            
+            while (nextCursor && pageCount < 10) { // Limit to 10 pages to prevent infinite loops
+              try {
+                const nextUrl = `${endpoint.url}?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&after_cursor=${nextCursor}`;
+                console.log(`📄 Fetching page ${pageCount + 1} with cursor: ${nextCursor}`);
+                
+                const nextRes = await fetch(nextUrl, fetchOptions);
+                if (nextRes.ok) {
+                  const nextData = await nextRes.json();
+                  if (nextData.results && Array.isArray(nextData.results)) {
+                    allEvents = [...allEvents, ...nextData.results];
+                    nextCursor = nextData.next;
+                    pageCount++;
+                    console.log(`📄 Page ${pageCount} added ${nextData.results.length} events. Total so far: ${allEvents.length}`);
+                  } else {
+                    break;
+                  }
+                } else {
+                  console.warn(`⚠️  Failed to fetch page ${pageCount + 1}: ${nextRes.status}`);
+                  break;
+                }
+              } catch (error) {
+                console.warn(`⚠️  Error fetching page ${pageCount + 1}:`, error);
+                break;
+              }
+            }
+            
+            events = allEvents;
+            console.log(`📄 Pagination complete. Total events fetched: ${events.length} across ${pageCount} pages`);
           }
           
           console.log(`✅ Successfully fetched ${events.length} events for ${eventType} from ${fullUrl}`);
