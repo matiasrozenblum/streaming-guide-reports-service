@@ -3,6 +3,14 @@
 const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY;
 const POSTHOG_API_HOST = process.env.POSTHOG_API_HOST || 'https://app.posthog.com';
 
+// Try alternative API hosts if the main one doesn't work
+const ALTERNATIVE_API_HOSTS = [
+  'https://app.posthog.com',
+  'https://api.posthog.com',
+  'https://posthog.com',
+  'https://eu.posthog.com', // EU region
+];
+
 // PostHog Project ID - this should match the one used in the frontend
 // The full project ID is: ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK
 const ENV_PROJECT_ID = process.env.POSTHOG_PROJECT_ID;
@@ -115,28 +123,25 @@ export async function fetchYouTubeClicks({
     // Try multiple endpoint formats to find the correct one
     // Based on PostHog API documentation: https://posthog.com/docs/api
     const endpoints = [
-      // Primary: Events endpoint (GET request)
+      // Primary: Events endpoint (GET request) - using the correct format
       {
         url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
         method: 'GET',
         params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`
       },
-      // Alternative: Query endpoint (POST request with query body)
+      // Alternative: Direct events endpoint without project ID
       {
-        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
-        method: 'POST',
-        body: {
-          query: {
-            kind: 'EventsQuery',
-            select: ['*'],
-            event: [eventType],
-            after: `${from}T00:00:00Z`,
-            before: `${to}T23:59:59Z`,
-            limit: limit
-          }
-        }
+        url: `${POSTHOG_API_HOST}/api/events/`,
+        method: 'GET',
+        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`
       },
-      // Fallback: Insights endpoint (POST request)
+      // Fallback: Try with personal API key in query params
+      {
+        url: `${POSTHOG_API_HOST}/api/events/`,
+        method: 'GET',
+        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&personal_api_key=${POSTHOG_API_KEY}`
+      },
+      // Alternative: Try the insights endpoint with different format
       {
         url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/trend/`,
         method: 'POST',
@@ -150,11 +155,11 @@ export async function fetchYouTubeClicks({
           limit: limit
         }
       },
-      // Legacy: Direct events endpoint (GET request)
+      // Legacy: Try with project ID in query params
       {
         url: `${POSTHOG_API_HOST}/api/events/`,
         method: 'GET',
-        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`
+        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&project_id=${POSTHOG_PROJECT_ID}`
       },
     ];
     
@@ -185,11 +190,16 @@ export async function fetchYouTubeClicks({
           },
         };
         
+        let finalUrl = endpoint.url;
+        if (endpoint.params) {
+          finalUrl = `${endpoint.url}${endpoint.params}`;
+        }
+        
         if (endpoint.body) {
           fetchOptions.body = JSON.stringify(endpoint.body);
         }
         
-        const res = await fetch(fullUrl, fetchOptions);
+        const res = await fetch(finalUrl, fetchOptions);
         
         if (res.ok) {
           const data = await res.json();
@@ -299,118 +309,120 @@ export async function testPostHogConnection(): Promise<{
     console.log(`📁 Project ID: ${POSTHOG_PROJECT_ID}`);
     console.log(`📏 Project ID Length: ${POSTHOG_PROJECT_ID.length}`);
     
-    // Test multiple endpoints
-    const testEndpoints = [
-      // First, test if the API key is valid by checking user info
-      {
-        url: `${POSTHOG_API_HOST}/api/users/@me/`,
-        method: 'GET',
-        description: 'User info endpoint (API key validation)'
-      },
-      // Then test if we can access basic project info
-      {
-        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/`,
-        method: 'GET',
-        description: 'Project info endpoint'
-      },
-      {
-        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
-        method: 'GET',
-        description: 'Events endpoint'
-      },
-      {
-        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/insights/`,
-        method: 'GET',
-        description: 'Insights endpoint'
-      },
-      {
-        url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
-        method: 'POST',
-        description: 'Query endpoint',
-        body: {
-          query: {
-            kind: 'EventsQuery',
-            select: ['*'],
-            event: ['youtube_click'],
-            after: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0] + 'T00:00:00Z',
-            before: new Date().toISOString().split('T')[0] + 'T23:59:59Z',
-            limit: 1
-          }
-        }
-      },
-      {
-        url: `${POSTHOG_API_HOST}/api/events/`,
-        method: 'GET',
-        description: 'Legacy events endpoint'
-      },
-    ];
-    
+    // Test multiple API hosts and endpoints
     let lastError: Error | null = null;
     
-    for (const endpoint of testEndpoints) {
-      try {
-        console.log(`🔍 Testing endpoint: ${endpoint.method} ${endpoint.url} (${endpoint.description})`);
-        
-        const fetchOptions: RequestInit = {
-          method: endpoint.method,
-          headers: {
-            Authorization: `Bearer ${POSTHOG_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-        };
-        
-        if (endpoint.body) {
-          fetchOptions.body = JSON.stringify(endpoint.body);
-        }
-        
-        const res = await fetch(endpoint.url, fetchOptions);
-        
-        if (res.ok) {
-          const data = await res.json();
-          console.log(`✅ PostHog connection successful with endpoint: ${endpoint.url}`);
-          console.log(`📊 Response keys:`, Object.keys(data));
+    for (const apiHost of ALTERNATIVE_API_HOSTS) {
+      console.log(`🔍 Testing API host: ${apiHost}`);
+      
+      const testEndpoints = [
+        // Test basic connectivity first
+        {
+          url: `${apiHost}/api/events/`,
+          method: 'GET',
+          description: 'Basic events endpoint',
+          params: `?limit=1`
+        },
+        // Test with personal API key in query params
+        {
+          url: `${apiHost}/api/events/`,
+          method: 'GET',
+          description: 'Events endpoint with personal API key in query params',
+          params: `?personal_api_key=${POSTHOG_API_KEY}&limit=1`
+        },
+        // Test with project ID in query params
+        {
+          url: `${apiHost}/api/events/`,
+          method: 'GET',
+          description: 'Events endpoint with project ID in query params',
+          params: `?project_id=${POSTHOG_PROJECT_ID}&limit=1`
+        },
+        // Test project-specific events endpoint
+        {
+          url: `${apiHost}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
+          method: 'GET',
+          description: 'Project-specific events endpoint',
+          params: `?limit=1`
+        },
+        // Test user info endpoint
+        {
+          url: `${apiHost}/api/users/@me/`,
+          method: 'GET',
+          description: 'User info endpoint (API key validation)'
+        },
+      ];
+      
+      for (const endpoint of testEndpoints) {
+        try {
+          console.log(`🔍 Testing endpoint: ${endpoint.method} ${endpoint.url} (${endpoint.description})`);
           
-          return {
-            success: true,
-            message: `PostHog connection successful with endpoint: ${endpoint.url} (${endpoint.description})`,
-            details: { 
-              workingEndpoint: endpoint.url,
-              workingMethod: endpoint.method,
-              description: endpoint.description,
-              status: res.status, 
-              responseKeys: Object.keys(data),
-              hasResults: !!data.results,
-              resultsCount: data.results?.length || 0
-            }
+          const fetchOptions: RequestInit = {
+            method: endpoint.method,
+            headers: {
+              Authorization: `Bearer ${POSTHOG_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
           };
-        } else {
-          // Try to get the response body for better error information
-          let errorBody = '';
-          try {
-            errorBody = await res.text();
-          } catch (e) {
-            errorBody = 'Could not read error response body';
+          
+          let finalUrl = endpoint.url;
+          if (endpoint.params) {
+            finalUrl = `${endpoint.url}${endpoint.params}`;
           }
           
-          console.warn(`⚠️  Endpoint ${endpoint.url} returned ${res.status}: ${res.statusText}`);
-          console.warn(`⚠️  Error response body:`, errorBody);
+          const res = await fetch(finalUrl, fetchOptions);
           
-          lastError = new Error(`HTTP ${res.status}: ${res.statusText} - ${errorBody}`);
+          if (res.ok) {
+            const data = await res.json();
+            console.log(`✅ PostHog connection successful with API host: ${apiHost}`);
+            console.log(`✅ Working endpoint: ${endpoint.url} (${endpoint.description})`);
+            console.log(`📊 Response keys:`, Object.keys(data));
+            
+            return {
+              success: true,
+              message: `PostHog connection successful with API host: ${apiHost} and endpoint: ${endpoint.url}`,
+              details: { 
+                workingApiHost: apiHost,
+                workingEndpoint: endpoint.url,
+                workingMethod: endpoint.method,
+                description: endpoint.description,
+                status: res.status, 
+                responseKeys: Object.keys(data),
+                hasResults: !!data.results,
+                resultsCount: data.results?.length || 0
+              }
+            };
+          } else {
+            // Try to get the response body for better error information
+            let errorBody = '';
+            try {
+              errorBody = await res.text();
+            } catch (e) {
+              errorBody = 'Could not read error response body';
+            }
+            
+            console.warn(`⚠️  Endpoint ${endpoint.url} on ${apiHost} returned ${res.status}: ${res.statusText}`);
+            console.warn(`⚠️  Error response body:`, errorBody);
+            
+            lastError = new Error(`HTTP ${res.status}: ${res.statusText} - ${errorBody}`);
+            continue;
+          }
+        } catch (error) {
+          console.warn(`⚠️  Endpoint ${endpoint.url} on ${apiHost} failed:`, error);
+          lastError = error instanceof Error ? error : new Error(String(error));
           continue;
         }
-      } catch (error) {
-        console.warn(`⚠️  Endpoint ${endpoint.url} failed:`, error);
-        lastError = error instanceof Error ? error : new Error(String(error));
-        continue;
       }
+      
+      // If we get here, all endpoints failed for this API host
+      console.warn(`⚠️  All endpoints failed for API host: ${apiHost}`);
     }
     
-    // If we get here, all endpoints failed
+    // If we get here, all API hosts and endpoints failed
     return {
       success: false,
-      message: `All PostHog endpoints failed. Last error: ${lastError?.message || 'Unknown error'}`,
+      message: `All PostHog API hosts and endpoints failed. Last error: ${lastError?.message || 'Unknown error'}`,
       details: { 
-        testedEndpoints: testEndpoints,
+        testedApiHosts: ALTERNATIVE_API_HOSTS,
         lastError: lastError?.message || 'Unknown error',
         projectId: POSTHOG_PROJECT_ID,
         projectIdLength: POSTHOG_PROJECT_ID.length
