@@ -580,11 +580,11 @@ export class ReportsService {
     const subscriptions = await this.dataSource
       .createQueryBuilder(UserSubscription, 'subscription')
       .leftJoin('subscription.user', 'user')
-      .select('user.birthDate', 'birthDate')
+      .select('"user"."birth_date"', 'birthDate')
       .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
       .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
       .andWhere('subscription.isActive = :isActive', { isActive: true })
-      .andWhere('user.birthDate IS NOT NULL')
+      .andWhere('"user"."birth_date" IS NOT NULL')
       .getRawMany();
 
     const ageGroups = { under18: 0, age18to30: 0, age30to45: 0, age45to60: 0, over60: 0 };
@@ -617,16 +617,16 @@ export class ReportsService {
           .addSelect('channel.name', 'name')
           .addSelect(groupBy === 'gender' ? `
             CASE
-              WHEN "user"."gender" IS NULL THEN 'unknown'
+              WHEN "user"."gender" IS NULL THEN 'rather_not_say'
               ELSE "user"."gender"
             END
           ` : `
             CASE
-              WHEN "user"."birthDate" IS NULL THEN 'unknown'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birthDate") < 18 THEN 'under18'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birthDate") < 30 THEN 'age18to30'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birthDate") < 45 THEN 'age30to45'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birthDate") < 60 THEN 'age45to60'
+              WHEN "user"."birth_date" IS NULL THEN 'unknown'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 18 THEN 'under18'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 30 THEN 'age18to30'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 45 THEN 'age30to45'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 60 THEN 'age45to60'
               ELSE 'over60'
             END
           `, 'groupKey')
@@ -754,16 +754,16 @@ export class ReportsService {
           .addSelect('channel.name', 'channelName')
           .addSelect(groupBy === 'gender' ? `
             CASE
-              WHEN "user"."gender" IS NULL THEN 'unknown'
+              WHEN "user"."gender" IS NULL THEN 'rather_not_say'
               ELSE "user"."gender"
             END
           ` : `
             CASE
-              WHEN "user"."birthDate" IS NULL THEN 'unknown'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birthDate") < 18 THEN 'under18'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birthDate") < 30 THEN 'age18to30'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birthDate") < 45 THEN 'age30to45'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birthDate") < 60 THEN 'age45to60'
+              WHEN "user"."birth_date" IS NULL THEN 'unknown'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 18 THEN 'under18'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 30 THEN 'age18to30'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 45 THEN 'age30to45'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 60 THEN 'age45to60'
               ELSE 'over60'
             END
           `, 'groupKey')
@@ -1428,11 +1428,11 @@ export class ReportsService {
       .leftJoinAndSelect('program.channel', 'channel')
       .select([
         'CASE ' +
-        'WHEN "user"."birthDate" IS NULL THEN \'unknown\' ' +
-        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birthDate")) < 18 THEN \'under18\' ' +
-        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birthDate")) BETWEEN 18 AND 30 THEN \'age18to30\' ' +
-        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birthDate")) BETWEEN 31 AND 45 THEN \'age30to45\' ' +
-        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birthDate")) BETWEEN 46 AND 60 THEN \'age45to60\' ' +
+        'WHEN "user"."birth_date" IS NULL THEN \'unknown\' ' +
+        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birth_date")) < 18 THEN \'under18\' ' +
+        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birth_date")) BETWEEN 18 AND 30 THEN \'age18to30\' ' +
+        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birth_date")) BETWEEN 31 AND 45 THEN \'age30to45\' ' +
+        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birth_date")) BETWEEN 46 AND 60 THEN \'age45to60\' ' +
         'ELSE \'over60\' ' +
         'END as ageGroup',
         'COUNT(subscription.id) as count'
@@ -1487,14 +1487,14 @@ export class ReportsService {
         .leftJoinAndSelect('subscription.program', 'program')
         .leftJoinAndSelect('program.channel', 'channel')
         .select([
-          'user.birthDate',
+          '"user"."birth_date"',
           'COUNT(subscription.id) as count'
         ])
         .where('channel.id = :channelId', { channelId })
         .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
         .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
         .andWhere('subscription.isActive = :isActive', { isActive: true })
-        .groupBy('user.birthDate')
+        .groupBy('"user"."birth_date"')
         .getRawMany();
       
       console.log('Simple age query result:', simpleAgeQuery);
