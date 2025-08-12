@@ -135,11 +135,11 @@ export async function fetchYouTubeClicks({
         method: 'GET',
         params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`
       },
-      // Fallback: Try with personal API key in query params
+      // Fallback: Try with project ID in query params (but keep API key in header)
       {
         url: `${POSTHOG_API_HOST}/api/events/`,
         method: 'GET',
-        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&personal_api_key=${POSTHOG_API_KEY}`
+        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&project_id=${POSTHOG_PROJECT_ID}`
       },
       // Alternative: Try the insights endpoint with different format
       {
@@ -154,12 +154,6 @@ export async function fetchYouTubeClicks({
           date_to: to,
           limit: limit
         }
-      },
-      // Legacy: Try with project ID in query params
-      {
-        url: `${POSTHOG_API_HOST}/api/events/`,
-        method: 'GET',
-        params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&project_id=${POSTHOG_PROJECT_ID}`
       },
     ];
     
@@ -189,6 +183,8 @@ export async function fetchYouTubeClicks({
             'Content-Type': 'application/json',
           },
         };
+        
+        console.log(`🔐 Authentication: Bearer ${POSTHOG_API_KEY.substring(0, 10)}...`);
         
         let finalUrl = endpoint.url;
         if (endpoint.params) {
@@ -323,14 +319,7 @@ export async function testPostHogConnection(): Promise<{
           description: 'Basic events endpoint',
           params: `?limit=1`
         },
-        // Test with personal API key in query params
-        {
-          url: `${apiHost}/api/events/`,
-          method: 'GET',
-          description: 'Events endpoint with personal API key in query params',
-          params: `?personal_api_key=${POSTHOG_API_KEY}&limit=1`
-        },
-        // Test with project ID in query params
+        // Test with project ID in query params (API key stays in header)
         {
           url: `${apiHost}/api/events/`,
           method: 'GET',
@@ -363,6 +352,8 @@ export async function testPostHogConnection(): Promise<{
               'Content-Type': 'application/json',
             },
           };
+          
+          console.log(`🔐 Authentication: Bearer ${POSTHOG_API_KEY.substring(0, 10)}...`);
           
           let finalUrl = endpoint.url;
           if (endpoint.params) {
