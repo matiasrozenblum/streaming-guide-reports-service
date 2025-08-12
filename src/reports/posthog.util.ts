@@ -12,80 +12,27 @@ const ALTERNATIVE_API_HOSTS = [
 ];
 
 // PostHog Project ID - this should match the one used in the frontend
-// The full project ID is: ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK
-const ENV_PROJECT_ID = process.env.POSTHOG_PROJECT_ID;
-const HARDCODED_PROJECT_ID = 'ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK';
+// Use the environment variable value - no hardcoded fallback
+const POSTHOG_PROJECT_ID = process.env.POSTHOG_PROJECT_ID;
 
-// Use environment variable if it's valid, otherwise fall back to hardcoded value
-const POSTHOG_PROJECT_ID = (ENV_PROJECT_ID && ENV_PROJECT_ID.length >= 40) ? ENV_PROJECT_ID : HARDCODED_PROJECT_ID;
-
-// Manual override option - uncomment and set if environment variable is not working
-// const MANUAL_OVERRIDE_PROJECT_ID = 'ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK';
-// const POSTHOG_PROJECT_ID = MANUAL_OVERRIDE_PROJECT_ID;
-
-// Validate that we have the full project ID
-if (POSTHOG_PROJECT_ID.length < 40) {
-  console.warn(`⚠️  POSTHOG_PROJECT_ID appears to be truncated: ${POSTHOG_PROJECT_ID} (length: ${POSTHOG_PROJECT_ID.length})`);
-  console.warn(`⚠️  Expected length: ~40 characters, got: ${POSTHOG_PROJECT_ID.length}`);
-  console.warn(`⚠️  Using hardcoded fallback: ${HARDCODED_PROJECT_ID}`);
+// Validate that we have the project ID
+if (!POSTHOG_PROJECT_ID) {
+  console.error('❌ POSTHOG_PROJECT_ID environment variable is not set. YouTube click data will not be available in reports.');
+} else if (POSTHOG_PROJECT_ID.length < 5) {
+  console.warn(`⚠️  POSTHOG_PROJECT_ID appears to be too short: ${POSTHOG_PROJECT_ID} (length: ${POSTHOG_PROJECT_ID.length})`);
+  console.warn(`⚠️  Expected length: 5+ characters, got: ${POSTHOG_PROJECT_ID.length}`);
 }
 
 console.log(`🔧 PostHog Project ID resolved:`, {
-  envValue: ENV_PROJECT_ID,
-  envValueLength: ENV_PROJECT_ID?.length || 0,
-  finalValue: POSTHOG_PROJECT_ID,
-  finalValueLength: POSTHOG_PROJECT_ID.length,
-  isUsingFallback: POSTHOG_PROJECT_ID === HARDCODED_PROJECT_ID
+  envValue: process.env.POSTHOG_PROJECT_ID,
+  envValueLength: process.env.POSTHOG_PROJECT_ID?.length || 0,
+  finalValue: POSTHOG_PROJECT_ID || 'NOT_SET',
+  finalValueLength: POSTHOG_PROJECT_ID?.length || 0,
+  isUsingEnvVar: !!process.env.POSTHOG_PROJECT_ID
 });
 
 if (!POSTHOG_API_KEY) {
   console.warn('⚠️  POSTHOG_API_KEY environment variable is not set. YouTube click data will not be available in reports.');
-}
-
-// Function to manually override the project ID if needed
-export function setPostHogProjectId(projectId: string) {
-  if (projectId && projectId.length >= 40) {
-    console.log(`🔧 Manually setting PostHog Project ID to: ${projectId}`);
-    // Note: This is a workaround - in a real implementation, you might want to use a different approach
-    // For now, we'll just log it and the user can set the environment variable
-    console.log(`🔧 Please set POSTHOG_PROJECT_ID environment variable to: ${projectId}`);
-    return true;
-  } else {
-    console.error(`❌ Invalid project ID: ${projectId} (length: ${projectId?.length || 0})`);
-    return false;
-  }
-}
-
-// Function to validate PostHog project ID format
-export function validatePostHogProjectId(projectId: string): {
-  isValid: boolean;
-  issues: string[];
-  format: string;
-} {
-  const issues: string[] = [];
-  
-  if (!projectId) {
-    issues.push('Project ID is empty');
-  } else {
-    if (projectId.length < 40) {
-      issues.push(`Project ID is too short: ${projectId.length} characters (expected >= 40)`);
-    }
-    
-    if (projectId.length > 50) {
-      issues.push(`Project ID is too long: ${projectId.length} characters (expected <= 50)`);
-    }
-    
-    // Check if it contains only valid characters (alphanumeric and some special chars)
-    if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) {
-      issues.push('Project ID contains invalid characters');
-    }
-  }
-  
-  return {
-    isValid: issues.length === 0,
-    issues,
-    format: projectId || 'NOT_SET'
-  };
 }
 
 export type PostHogClickEvent = {
@@ -442,16 +389,9 @@ export function validatePostHogConfig(): {
   environment: {
     envProjectId: string | undefined;
     envProjectIdLength: number;
-    hardcodedProjectId: string;
-    hardcodedProjectIdLength: number;
     finalProjectId: string;
     finalProjectIdLength: number;
-    isUsingFallback: boolean;
-  };
-  projectIdValidation: {
-    isValid: boolean;
-    issues: string[];
-    format: string;
+    isUsingEnvVar: boolean;
   };
 } {
   const issues: string[] = [];
@@ -470,14 +410,9 @@ export function validatePostHogConfig(): {
   
   if (!POSTHOG_PROJECT_ID) {
     issues.push('POSTHOG_PROJECT_ID is not set');
-  } else if (POSTHOG_PROJECT_ID.length < 40) {
-    issues.push(`POSTHOG_PROJECT_ID appears to be truncated: ${POSTHOG_PROJECT_ID} (length: ${POSTHOG_PROJECT_ID.length})`);
-    issues.push('Expected length: ~40 characters');
-  }
-  
-  const projectIdValidation = validatePostHogProjectId(POSTHOG_PROJECT_ID || '');
-  if (!projectIdValidation.isValid) {
-    issues.push(...projectIdValidation.issues);
+  } else if (POSTHOG_PROJECT_ID.length < 5) {
+    issues.push(`POSTHOG_PROJECT_ID appears to be too short: ${POSTHOG_PROJECT_ID} (length: ${POSTHOG_PROJECT_ID.length})`);
+    issues.push('Expected length: 5+ characters');
   }
   
   return {
@@ -491,12 +426,9 @@ export function validatePostHogConfig(): {
     environment: {
       envProjectId: process.env.POSTHOG_PROJECT_ID,
       envProjectIdLength: process.env.POSTHOG_PROJECT_ID?.length || 0,
-      hardcodedProjectId: 'ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK',
-      hardcodedProjectIdLength: 'ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK'.length,
       finalProjectId: POSTHOG_PROJECT_ID || 'NOT_SET',
       finalProjectIdLength: POSTHOG_PROJECT_ID?.length || 0,
-      isUsingFallback: POSTHOG_PROJECT_ID === 'ioX3gwDuENT8MoUWSacARsCFVE6bSbKaEh5u7Mie5oK'
-    },
-    projectIdValidation
+      isUsingEnvVar: !!process.env.POSTHOG_PROJECT_ID
+    }
   };
 } 
