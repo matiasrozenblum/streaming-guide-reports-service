@@ -28,4 +28,28 @@ export declare class ReportsController {
     downloadWeeklyReport(res: Response, from: string, to: string, channelId?: string): Promise<void>;
     getTopChannels(metric: 'subscriptions' | 'youtube_clicks', from: string, to: string, limit?: string, groupBy?: string): Promise<any[]>;
     getTopPrograms(metric: 'subscriptions' | 'youtube_clicks', from: string, to: string, limit?: string, groupBy?: string): Promise<any[]>;
+    testPostHog(): Promise<{
+        configValidation: {
+            isValid: boolean;
+            issues: string[];
+            config: {
+                apiKey: string;
+                apiHost: string;
+                projectId: string;
+            };
+            environment: {
+                envProjectId: string | undefined;
+                envProjectIdLength: number;
+                finalProjectId: string;
+                finalProjectIdLength: number;
+                isUsingEnvVar: boolean;
+            };
+        };
+        connectionTest: {
+            success: boolean;
+            message: string;
+            details?: any;
+        };
+        timestamp: string;
+    }>;
 }

@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const reports_service_1 = require("./reports.service");
 const puppeteer_util_1 = require("./puppeteer.util");
+const posthog_util_1 = require("./posthog.util");
 class GenerateReportDto {
 }
 exports.GenerateReportDto = GenerateReportDto;
@@ -75,6 +76,15 @@ let ReportsController = class ReportsController {
     async getTopPrograms(metric, from, to, limit, groupBy) {
         return this.reportsService.getTopPrograms({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
     }
+    async testPostHog() {
+        const configValidation = (0, posthog_util_1.validatePostHogConfig)();
+        const connectionTest = await (0, posthog_util_1.testPostHogConnection)();
+        return {
+            configValidation,
+            connectionTest,
+            timestamp: new Date().toISOString()
+        };
+    }
 };
 exports.ReportsController = ReportsController;
 __decorate([
@@ -131,6 +141,14 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String, String, String]),
     __metadata("design:returntype", Promise)
 ], ReportsController.prototype, "getTopPrograms", null);
+__decorate([
+    (0, common_1.Get)('test-posthog'),
+    (0, swagger_1.ApiOperation)({ summary: 'Test PostHog connection and configuration' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'PostHog connection test result' }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], ReportsController.prototype, "testPostHog", null);
 exports.ReportsController = ReportsController = __decorate([
     (0, swagger_1.ApiTags)('reports'),
     (0, common_1.Controller)('reports'),
