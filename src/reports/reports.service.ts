@@ -685,7 +685,11 @@ export class ReportsService {
         .orderBy('count', 'DESC')
         .limit(limit)
         .getRawMany();
-      return results;
+      // Convert count from string to number
+      return results.map(result => ({
+        ...result,
+        count: parseInt(result.count, 10)
+      }));
     } else if (metric === 'youtube_clicks') {
       // Top channels by YouTube clicks from PostHog (aggregate live + deferred)
       console.log(`🔍 Fetching YouTube clicks for channels from ${from} to ${to}`);
@@ -826,7 +830,11 @@ export class ReportsService {
         .orderBy('count', 'DESC')
         .limit(limit)
         .getRawMany();
-      return results;
+      // Convert count from string to number
+      return results.map(result => ({
+        ...result,
+        count: parseInt(result.count, 10)
+      }));
     } else if (metric === 'youtube_clicks') {
       // Top programs by YouTube clicks from PostHog (aggregate live + deferred)
       console.log(`🔍 Fetching YouTube clicks for programs from ${from} to ${to}`);
