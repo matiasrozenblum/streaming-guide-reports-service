@@ -54,6 +54,7 @@ describe('ReportsService', () => {
   it('should generate users report (csv)', async () => {
     jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValueOnce({
       select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
@@ -70,6 +71,7 @@ describe('ReportsService', () => {
     jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValueOnce({
       leftJoinAndSelect: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
@@ -102,6 +104,7 @@ describe('ReportsService', () => {
     jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValueOnce({
       leftJoin: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       getRawMany: jest.fn().mockResolvedValue([
@@ -131,6 +134,7 @@ describe('ReportsService', () => {
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         groupBy: jest.fn().mockReturnThis(),
+        addGroupBy: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         getRawMany: jest.fn().mockResolvedValue([
           { id: 1, name: 'Channel A', groupKey: 'male', count: '5' },
@@ -141,13 +145,7 @@ describe('ReportsService', () => {
       };
       jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValue(mockQueryBuilder as any);
 
-      const result = await service.getTopChannels({
-        metric: 'subscriptions',
-        from: '2024-01-01',
-        to: '2024-01-31',
-        limit: 5,
-        groupBy: 'gender',
-      });
+      const result = await service.getTopChannels({ metric: 'subscriptions', from: '2024-01-01', to: '2024-01-31', limit: 5, groupBy: 'gender' });
 
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('Channel A');
@@ -163,13 +161,7 @@ describe('ReportsService', () => {
     });
 
     it('should get top channels by youtube clicks with gender grouping', async () => {
-      const result = await service.getTopChannels({
-        metric: 'youtube_clicks',
-        from: '2024-01-01',
-        to: '2024-01-31',
-        limit: 5,
-        groupBy: 'gender',
-      });
+      const result = await service.getTopChannels({ metric: 'youtube_clicks', from: '2024-01-01', to: '2024-01-31', limit: 5, groupBy: 'gender' });
 
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('A');
@@ -195,6 +187,7 @@ describe('ReportsService', () => {
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         groupBy: jest.fn().mockReturnThis(),
+        addGroupBy: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         getRawMany: jest.fn().mockResolvedValue([
           { id: 1, name: 'Program A', channelName: 'Channel A', groupKey: 'male', count: '5' },
@@ -205,13 +198,7 @@ describe('ReportsService', () => {
       };
       jest.spyOn(dataSource, 'createQueryBuilder').mockReturnValue(mockQueryBuilder as any);
 
-      const result = await service.getTopPrograms({
-        metric: 'subscriptions',
-        from: '2024-01-01',
-        to: '2024-01-31',
-        limit: 5,
-        groupBy: 'gender',
-      });
+      const result = await service.getTopPrograms({ metric: 'subscriptions', from: '2024-01-01', to: '2024-01-31', limit: 5, groupBy: 'gender' });
 
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('Program A');
@@ -229,13 +216,7 @@ describe('ReportsService', () => {
     });
 
     it('should get top programs by youtube clicks with gender grouping', async () => {
-      const result = await service.getTopPrograms({
-        metric: 'youtube_clicks',
-        from: '2024-01-01',
-        to: '2024-01-31',
-        limit: 5,
-        groupBy: 'gender',
-      });
+      const result = await service.getTopPrograms({ metric: 'youtube_clicks', from: '2024-01-01', to: '2024-01-31', limit: 5, groupBy: 'gender' });
 
       expect(result).toHaveLength(2);
       // The mock data now has proper program names

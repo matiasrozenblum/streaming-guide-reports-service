@@ -277,19 +277,8 @@ export class ReportsService {
         .getRawMany(),
 
       // YouTube clicks from PostHog
-      fetchYouTubeClicks({
-        from: params.from,
-        to: params.to,
-        eventType: 'click_youtube_live',
-        breakdownBy: 'channel_name',
-      }),
-
-      fetchYouTubeClicks({
-        from: params.from,
-        to: params.to,
-        eventType: 'click_youtube_deferred',
-        breakdownBy: 'channel_name',
-      }),
+      fetchYouTubeClicks('click_youtube_live', params.from, params.to, 10000),
+      fetchYouTubeClicks('click_youtube_deferred', params.from, params.to, 10000),
     ]);
 
     // Process gender data
@@ -309,18 +298,8 @@ export class ReportsService {
 
     // Get program clicks with channel information
     const [programClicksLive, programClicksDeferred] = await Promise.all([
-      fetchYouTubeClicks({
-        from: params.from,
-        to: params.to,
-        eventType: 'click_youtube_live',
-        breakdownBy: 'program_name',
-      }),
-      fetchYouTubeClicks({
-        from: params.from,
-        to: params.to,
-        eventType: 'click_youtube_deferred',
-        breakdownBy: 'program_name',
-      }),
+      fetchYouTubeClicks('click_youtube_live', params.from, params.to, 10000),
+      fetchYouTubeClicks('click_youtube_deferred', params.from, params.to, 10000),
     ]);
 
     const topProgramsByClicksLive = await aggregateClicksBy(programClicksLive, 'program_name');
@@ -580,11 +559,11 @@ export class ReportsService {
     const subscriptions = await this.dataSource
       .createQueryBuilder(UserSubscription, 'subscription')
       .leftJoin('subscription.user', 'user')
-      .select('user.birthDate', 'birthDate')
+      .select('"user"."birth_date"', 'birthDate')
       .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
       .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
       .andWhere('subscription.isActive = :isActive', { isActive: true })
-      .andWhere('user.birthDate IS NOT NULL')
+      .andWhere('"user"."birth_date" IS NOT NULL')
       .getRawMany();
 
     const ageGroups = { under18: 0, age18to30: 0, age30to45: 0, age45to60: 0, over60: 0 };
@@ -617,16 +596,16 @@ export class ReportsService {
           .addSelect('channel.name', 'name')
           .addSelect(groupBy === 'gender' ? `
             CASE
-              WHEN user.gender IS NULL THEN 'unknown'
-              ELSE user.gender
+              WHEN "user"."gender" IS NULL THEN 'rather_not_say'
+              ELSE "user"."gender"
             END
           ` : `
             CASE
-              WHEN user.birthDate IS NULL THEN 'unknown'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 18 THEN 'under18'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 30 THEN 'age18to30'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 45 THEN 'age30to45'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 60 THEN 'age45to60'
+              WHEN "user"."birth_date" IS NULL THEN 'unknown'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 18 THEN 'under18'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 30 THEN 'age18to30'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 45 THEN 'age30to45'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 60 THEN 'age45to60'
               ELSE 'over60'
             END
           `, 'groupKey')
@@ -634,7 +613,8 @@ export class ReportsService {
           .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
           .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
           .andWhere('subscription.isActive = :isActive', { isActive: true })
-          .groupBy('channel.id, channel.name, "groupKey"')
+          .groupBy('channel.id, channel.name')
+          .addGroupBy('"groupKey"')
           .orderBy('COUNT(subscription.id)', 'DESC');
 
         const raw = await qb.getRawMany();
@@ -656,8 +636,8 @@ export class ReportsService {
         return arr.slice(0, limit);
       } else if (metric === 'youtube_clicks') {
         const [live, deferred] = await Promise.all([
-          fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
-          fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+          fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+          fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
         ]);
         const map = new Map();
         for (const row of [...live, ...deferred]) {
@@ -708,10 +688,19 @@ export class ReportsService {
       return results;
     } else if (metric === 'youtube_clicks') {
       // Top channels by YouTube clicks from PostHog (aggregate live + deferred)
+      console.log(`🔍 Fetching YouTube clicks for channels from ${from} to ${to}`);
+      
       const [live, deferred] = await Promise.all([
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+        fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+        fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
       ]);
+      
+      console.log(`📊 YouTube clicks data received:`, {
+        liveCount: live.length,
+        deferredCount: deferred.length,
+        totalEvents: live.length + deferred.length
+      });
+      
       // Aggregate by channel name
       const map = new Map();
       for (const row of [...live, ...deferred]) {
@@ -719,9 +708,13 @@ export class ReportsService {
         if (!map.has(key)) map.set(key, { name: key, count: 0 });
         map.get(key).count += 1;
       }
-      return Array.from(map.values())
+      
+      const result = Array.from(map.values())
         .sort((a, b) => b.count - a.count)
         .slice(0, limit);
+      
+      console.log(`✅ Aggregated YouTube clicks result:`, result);
+      return result;
     }
     return [];
   }
@@ -740,16 +733,16 @@ export class ReportsService {
           .addSelect('channel.name', 'channelName')
           .addSelect(groupBy === 'gender' ? `
             CASE
-              WHEN user.gender IS NULL THEN 'unknown'
-              ELSE user.gender
+              WHEN "user"."gender" IS NULL THEN 'rather_not_say'
+              ELSE "user"."gender"
             END
           ` : `
             CASE
-              WHEN user.birthDate IS NULL THEN 'unknown'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 18 THEN 'under18'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 30 THEN 'age18to30'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 45 THEN 'age30to45'
-              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM user.birthDate) < 60 THEN 'age45to60'
+              WHEN "user"."birth_date" IS NULL THEN 'unknown'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 18 THEN 'under18'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 30 THEN 'age18to30'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 45 THEN 'age30to45'
+              WHEN EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM "user"."birth_date") < 60 THEN 'age45to60'
               ELSE 'over60'
             END
           `, 'groupKey')
@@ -757,7 +750,8 @@ export class ReportsService {
           .where('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
           .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
           .andWhere('subscription.isActive = :isActive', { isActive: true })
-          .groupBy('program.id, program.name, channel.name, "groupKey"')
+          .groupBy('program.id, program.name, channel.name')
+          .addGroupBy('"groupKey"')
           .orderBy('COUNT(subscription.id)', 'DESC');
 
         const raw = await qb.getRawMany();
@@ -779,8 +773,8 @@ export class ReportsService {
         return arr.slice(0, limit);
       } else if (metric === 'youtube_clicks') {
         const [live, deferred] = await Promise.all([
-          fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
-          fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+          fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+          fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
         ]);
         const map = new Map();
         for (const row of [...live, ...deferred]) {
@@ -835,10 +829,19 @@ export class ReportsService {
       return results;
     } else if (metric === 'youtube_clicks') {
       // Top programs by YouTube clicks from PostHog (aggregate live + deferred)
+      console.log(`🔍 Fetching YouTube clicks for programs from ${from} to ${to}`);
+      
       const [live, deferred] = await Promise.all([
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+        fetchYouTubeClicks('click_youtube_live', from, to, 10000),
+        fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
       ]);
+      
+      console.log(`📊 YouTube clicks data received for programs:`, {
+        liveCount: live.length,
+        deferredCount: deferred.length,
+        totalEvents: live.length + deferred.length
+      });
+      
       // Aggregate by program name
       const map = new Map();
       for (const row of [...live, ...deferred]) {
@@ -846,9 +849,13 @@ export class ReportsService {
         if (!map.has(key)) map.set(key, { name: key, count: 0 });
         map.get(key).count += 1;
       }
-      return Array.from(map.values())
+      
+      const result = Array.from(map.values())
         .sort((a, b) => b.count - a.count)
         .slice(0, limit);
+      
+      console.log(`✅ Aggregated YouTube clicks result for programs:`, result);
+      return result;
     }
     return [];
   }
@@ -949,9 +956,9 @@ export class ReportsService {
         .getRawMany(),
 
       // YouTube clicks (live)
-      fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'channel_name', limit: 100 }),
+      fetchYouTubeClicks('click_youtube_live', from, to, 10000),
       // YouTube clicks (deferred)
-      fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'channel_name', limit: 100 }),
+      fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
     ]);
 
     // Convert arrays to objects for compatibility
@@ -1242,13 +1249,7 @@ export class ReportsService {
 
     if (!isInTop5ByLiveClicks) {
       // Get live clicks for this specific channel
-      const liveClicks = await fetchYouTubeClicks({ 
-        from, 
-        to, 
-        eventType: 'click_youtube_live', 
-        breakdownBy: 'channel_name', 
-        limit: 100 
-      });
+      const liveClicks = await fetchYouTubeClicks('click_youtube_live', from, to, 10000);
       
       const channelLiveClicks = liveClicks.filter(c => c.properties.channel_name === channel.name);
       const totalLiveClicks = channelLiveClicks.length;
@@ -1264,13 +1265,7 @@ export class ReportsService {
 
     if (!isInTop5ByDeferredClicks) {
       // Get deferred clicks for this specific channel
-      const deferredClicks = await fetchYouTubeClicks({ 
-        from, 
-        to, 
-        eventType: 'click_youtube_deferred', 
-        breakdownBy: 'channel_name', 
-        limit: 100 
-      });
+      const deferredClicks = await fetchYouTubeClicks('click_youtube_deferred', from, to, 10000);
       
       const channelDeferredClicks = deferredClicks.filter(c => c.properties.channel_name === channel.name);
       const totalDeferredClicks = channelDeferredClicks.length;
@@ -1346,8 +1341,8 @@ export class ReportsService {
     // If no programs found by channel name, try to get programs directly for this channel
     if (channelProgramsByClicks.length === 0) {
       const [liveClicks, deferredClicks] = await Promise.all([
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_live', breakdownBy: 'program_name', limit: 100 }),
-        fetchYouTubeClicks({ from, to, eventType: 'click_youtube_deferred', breakdownBy: 'program_name', limit: 100 }),
+        fetchYouTubeClicks('click_youtube_live', from, to, 100),
+        fetchYouTubeClicks('click_youtube_deferred', from, to, 100),
       ]);
       
       // Filter clicks for this specific channel
@@ -1400,11 +1395,11 @@ export class ReportsService {
       .leftJoinAndSelect('program.channel', 'channel')
       .select([
         'CASE ' +
-        'WHEN user.birthDate IS NULL THEN \'unknown\' ' +
-        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, user.birthDate)) < 18 THEN \'under18\' ' +
-        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, user.birthDate)) BETWEEN 18 AND 30 THEN \'age18to30\' ' +
-        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, user.birthDate)) BETWEEN 31 AND 45 THEN \'age30to45\' ' +
-        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, user.birthDate)) BETWEEN 46 AND 60 THEN \'age45to60\' ' +
+        'WHEN "user"."birth_date" IS NULL THEN \'unknown\' ' +
+        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birth_date")) < 18 THEN \'under18\' ' +
+        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birth_date")) BETWEEN 18 AND 30 THEN \'age18to30\' ' +
+        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birth_date")) BETWEEN 31 AND 45 THEN \'age30to45\' ' +
+        'WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, "user"."birth_date")) BETWEEN 46 AND 60 THEN \'age45to60\' ' +
         'ELSE \'over60\' ' +
         'END as ageGroup',
         'COUNT(subscription.id) as count'
@@ -1459,14 +1454,14 @@ export class ReportsService {
         .leftJoinAndSelect('subscription.program', 'program')
         .leftJoinAndSelect('program.channel', 'channel')
         .select([
-          'user.birthDate',
+          '"user"."birth_date"',
           'COUNT(subscription.id) as count'
         ])
         .where('channel.id = :channelId', { channelId })
         .andWhere('subscription.createdAt >= :from', { from: `${from}T00:00:00Z` })
         .andWhere('subscription.createdAt <= :to', { to: `${to}T23:59:59Z` })
         .andWhere('subscription.isActive = :isActive', { isActive: true })
-        .groupBy('user.birthDate')
+        .groupBy('"user"."birth_date"')
         .getRawMany();
       
       console.log('Simple age query result:', simpleAgeQuery);

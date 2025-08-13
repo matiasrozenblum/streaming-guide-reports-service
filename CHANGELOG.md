@@ -17,6 +17,11 @@ y este proyecto utiliza [SemVer](https://semver.org/lang/es/).
 
 ---
 
+## [1.3.0] - 2025-08-12
+
+### Fixed
+- Fixed integration with posthog to show real numbers
+
 ## [1.2.0] - 2025-08-11
 
 ### Changed

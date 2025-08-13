@@ -1,9 +1,11 @@
-import { Controller, Post, Body, Get, Query, Res } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { Controller, Post, Body, Get, Query, Res, Param, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { getBrowser } from './puppeteer.util';
 
+
+// Define the DTO inline since it doesn't exist in a separate file
 export class GenerateReportDto {
   type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary' | 'comprehensive-channel-summary';
   format: 'csv' | 'pdf';
@@ -103,4 +105,6 @@ export class ReportsController {
   ) {
     return this.reportsService.getTopPrograms({ metric, from, to, limit: limit ? parseInt(limit) : 5, groupBy });
   }
+
+
 } 
