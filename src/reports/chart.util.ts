@@ -144,6 +144,7 @@ export function barChartConfig({
           },
         },
         x: {
+          position: 'bottom',
           title: {
             display: false,
           },
@@ -156,6 +157,9 @@ export function barChartConfig({
             maxRotation: 45,
             minRotation: 0,
             padding: 8,
+            autoSkip: false,
+            mirror: false,
+            display: true,
           },
           grid: {
             display: false,
