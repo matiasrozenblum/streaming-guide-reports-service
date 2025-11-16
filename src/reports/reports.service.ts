@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { stringify } from 'csv-stringify';
-import { renderChart, barChartConfig, pieChartConfig } from './chart.util';
+import { renderPieChart, renderBarChart, barChartConfig, pieChartConfig } from './chart.util';
 import { generateWeeklyReportPdf, generatePeriodicReportPdf } from './weekly-report-pdf.util';
 import { WeeklyReportData } from './weekly-report.service';
 import { fetchYouTubeClicks, aggregateClicksBy } from './posthog.util';
@@ -374,52 +374,52 @@ export class ReportsService {
 
     // Generate charts
     const charts = {
-      usersByGender: (await renderChart(pieChartConfig({
+      usersByGender: (await renderPieChart(pieChartConfig({
         labels: Object.keys(data.usersByGender),
         data: Object.values(data.usersByGender),
         title: 'Usuarios nuevos por género',
       }))).toString('base64'),
-      subsByGender: (await renderChart(pieChartConfig({
+      subsByGender: (await renderPieChart(pieChartConfig({
         labels: Object.keys(data.subscriptionsByGender),
         data: Object.values(data.subscriptionsByGender),
         title: 'Suscripciones nuevas por género',
       }))).toString('base64'),
-      subsByAge: (await renderChart(pieChartConfig({
+      subsByAge: (await renderPieChart(pieChartConfig({
         labels: Object.keys(data.subscriptionsByAge),
         data: Object.values(data.subscriptionsByAge),
         title: 'Suscripciones nuevas por grupo de edad',
       }))).toString('base64'),
-      topChannelsBySubs: (await renderChart(barChartConfig({
+      topChannelsBySubs: (await renderBarChart(barChartConfig({
         labels: data.topChannelsBySubscriptions.map(c => c.channelName),
         datasets: [{ label: 'Suscripciones', data: data.topChannelsBySubscriptions.map(c => c.count) }],
         title: 'Top 5 canales por suscripciones',
         yLabel: 'Suscripciones',
       }))).toString('base64'),
-      topChannelsByClicksLive: (await renderChart(barChartConfig({
+      topChannelsByClicksLive: (await renderBarChart(barChartConfig({
         labels: data.topChannelsByClicksLive.map(c => c.channelName),
         datasets: [{ label: 'Clicks en vivo', data: data.topChannelsByClicksLive.map(c => c.count) }],
         title: 'Top 5 canales por clicks en YouTube (en vivo)',
         yLabel: 'Clicks',
       }))).toString('base64'),
-      topChannelsByClicksDeferred: (await renderChart(barChartConfig({
+      topChannelsByClicksDeferred: (await renderBarChart(barChartConfig({
         labels: data.topChannelsByClicksDeferred.map(c => c.channelName),
         datasets: [{ label: 'Clicks diferidos', data: data.topChannelsByClicksDeferred.map(c => c.count) }],
         title: 'Top 5 canales por clicks en YouTube (diferido)',
         yLabel: 'Clicks',
       }))).toString('base64'),
-      topProgramsBySubs: (await renderChart(barChartConfig({
+      topProgramsBySubs: (await renderBarChart(barChartConfig({
         labels: data.topProgramsBySubscriptions.map(p => p.programName),
         datasets: [{ label: 'Suscripciones', data: data.topProgramsBySubscriptions.map(p => p.count) }],
         title: 'Top 5 programas por suscripciones',
         yLabel: 'Suscripciones',
       }))).toString('base64'),
-      topProgramsByClicksLive: (await renderChart(barChartConfig({
+      topProgramsByClicksLive: (await renderBarChart(barChartConfig({
         labels: data.topProgramsByClicksLive.map(p => p.programName),
         datasets: [{ label: 'Clicks en vivo', data: data.topProgramsByClicksLive.map(p => p.count) }],
         title: 'Top 5 programas por clicks en YouTube (en vivo)',
         yLabel: 'Clicks',
       }))).toString('base64'),
-      topProgramsByClicksDeferred: (await renderChart(barChartConfig({
+      topProgramsByClicksDeferred: (await renderBarChart(barChartConfig({
         labels: data.topProgramsByClicksDeferred.map(p => p.programName),
         datasets: [{ label: 'Clicks diferidos', data: data.topProgramsByClicksDeferred.map(p => p.count) }],
         title: 'Top 5 programas por clicks en YouTube (diferido)',
@@ -1005,52 +1005,52 @@ export class ReportsService {
 
     // Generate charts
     const charts = {
-      usersByGender: (await renderChart(pieChartConfig({
+      usersByGender: (await renderPieChart(pieChartConfig({
         labels: Object.keys(reportData.usersByGender),
         data: Object.values(reportData.usersByGender),
         title: 'Usuarios nuevos por género',
       }))).toString('base64'),
-      subsByGender: (await renderChart(pieChartConfig({
+      subsByGender: (await renderPieChart(pieChartConfig({
         labels: Object.keys(reportData.subscriptionsByGender),
         data: Object.values(reportData.subscriptionsByGender),
         title: 'Suscripciones nuevas por género',
       }))).toString('base64'),
-      subsByAge: (await renderChart(pieChartConfig({
+      subsByAge: (await renderPieChart(pieChartConfig({
         labels: Object.keys(reportData.subscriptionsByAge),
         data: Object.values(reportData.subscriptionsByAge),
         title: 'Suscripciones nuevas por grupo de edad',
       }))).toString('base64'),
-      topChannelsBySubs: (await renderChart(barChartConfig({
+      topChannelsBySubs: (await renderBarChart(barChartConfig({
         labels: reportData.topChannelsBySubscriptions.map(c => c.channelName),
         datasets: [{ label: 'Suscripciones', data: reportData.topChannelsBySubscriptions.map(c => c.count) }],
         title: 'Top 5 canales por suscripciones',
         yLabel: 'Suscripciones',
       }))).toString('base64'),
-      topChannelsByClicksLive: (await renderChart(barChartConfig({
+      topChannelsByClicksLive: (await renderBarChart(barChartConfig({
         labels: reportData.topChannelsByClicksLive.map(c => c.channelName),
         datasets: [{ label: 'Clicks en vivo', data: reportData.topChannelsByClicksLive.map(c => c.count) }],
         title: 'Top 5 canales por clicks en YouTube (en vivo)',
         yLabel: 'Clicks',
       }))).toString('base64'),
-      topChannelsByClicksDeferred: (await renderChart(barChartConfig({
+      topChannelsByClicksDeferred: (await renderBarChart(barChartConfig({
         labels: reportData.topChannelsByClicksDeferred.map(c => c.channelName),
         datasets: [{ label: 'Clicks diferidos', data: reportData.topChannelsByClicksDeferred.map(c => c.count) }],
         title: 'Top 5 canales por clicks en YouTube (diferido)',
         yLabel: 'Clicks',
       }))).toString('base64'),
-      topProgramsBySubs: (await renderChart(barChartConfig({
+      topProgramsBySubs: (await renderBarChart(barChartConfig({
         labels: reportData.topProgramsBySubscriptions.map(p => p.programName),
         datasets: [{ label: 'Suscripciones', data: reportData.topProgramsBySubscriptions.map(p => p.count) }],
         title: 'Top 5 programas por suscripciones',
         yLabel: 'Suscripciones',
       }))).toString('base64'),
-      topProgramsByClicksLive: (await renderChart(barChartConfig({
+      topProgramsByClicksLive: (await renderBarChart(barChartConfig({
         labels: reportData.topProgramsByClicksLive.map(p => p.programName),
         datasets: [{ label: 'Clicks en vivo', data: reportData.topProgramsByClicksLive.map(p => p.count) }],
         title: 'Top 5 programas por clicks en YouTube (en vivo)',
         yLabel: 'Clicks',
       }))).toString('base64'),
-      topProgramsByClicksDeferred: (await renderChart(barChartConfig({
+      topProgramsByClicksDeferred: (await renderBarChart(barChartConfig({
         labels: reportData.topProgramsByClicksDeferred.map(p => p.programName),
         datasets: [{ label: 'Clicks diferidos', data: reportData.topProgramsByClicksDeferred.map(p => p.count) }],
         title: 'Top 5 programas por clicks en YouTube (diferido)',
