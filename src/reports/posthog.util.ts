@@ -21,7 +21,9 @@ export async function fetchYouTubeClicks(
   to: string,
   limit: number = 1000
 ): Promise<PostHogClickEvent[]> {
+  console.log(`fetchYouTubeClicks(${eventType}): Starting fetch...`, { from, to, hasApiKey: !!POSTHOG_API_KEY, projectId: POSTHOG_PROJECT_ID });
   if (!POSTHOG_API_KEY) {
+    console.log(`fetchYouTubeClicks(${eventType}): No API key, returning empty`);
     return [];
   }
 
@@ -123,6 +125,7 @@ export async function fetchYouTubeClicks(
           events = allEvents;
         }
 
+        console.log(`fetchYouTubeClicks: Found ${events.length} events for ${eventType}`);
         return events as PostHogClickEvent[];
       } else {
         const errorBody = await res.text();
@@ -158,7 +161,9 @@ export async function fetchStreamerClicks(
   to: string,
   limit: number = 1000
 ): Promise<PostHogClickEvent[]> {
+  console.log(`fetchStreamerClicks(${eventType}): Starting fetch...`, { from, to, host: POSTHOG_API_HOST, projectId: POSTHOG_PROJECT_ID });
   if (!POSTHOG_API_KEY) {
+    console.log(`fetchStreamerClicks(${eventType}): No API key`);
     return [];
   }
 
