@@ -5,7 +5,7 @@ import { stringify } from 'csv-stringify';
 import { renderPieChart, renderBarChart, barChartConfig, pieChartConfig } from './chart.util';
 import { generateWeeklyReportPdf, generatePeriodicReportPdf } from './weekly-report-pdf.util';
 import { WeeklyReportData } from './weekly-report.service';
-import { fetchYouTubeClicks, aggregateClicksBy } from './posthog.util';
+import { fetchYouTubeClicks, aggregateClicksBy, fetchStreamerClicks } from './posthog.util';
 import { getBrowser } from './puppeteer.util';
 import * as dayjs from 'dayjs';
 import { User } from '../users/users.entity';
@@ -18,7 +18,7 @@ export class ReportsService {
   constructor(
     @InjectDataSource()
     private dataSource: DataSource,
-  ) {}
+  ) { }
 
   async generateReport(request: {
     type: 'users' | 'subscriptions' | 'weekly-summary' | 'monthly-summary' | 'quarterly-summary' | 'yearly-summary' | 'channel-summary' | 'comprehensive-channel-summary';
@@ -77,7 +77,7 @@ export class ReportsService {
       .select([
         'user.id',
         'user.firstName',
-        'user.lastName', 
+        'user.lastName',
         'user.email',
         'user.gender',
         'user.birthDate',
@@ -199,7 +199,9 @@ export class ReportsService {
       topChannelsBySubscriptions,
       topProgramsBySubscriptions,
       youtubeClicksLive,
-      youtubeClicksDeferred
+      youtubeClicksDeferred,
+      streamerClicksLive,
+      streamerClicksOffline
     ] = await Promise.all([
       // Total new users
       this.dataSource
@@ -279,6 +281,9 @@ export class ReportsService {
       // YouTube clicks from PostHog
       fetchYouTubeClicks('click_youtube_live', params.from, params.to, 10000),
       fetchYouTubeClicks('click_youtube_deferred', params.from, params.to, 10000),
+      // Streamer clicks from PostHog
+      fetchStreamerClicks('click_streamer_live', params.from, params.to, 10000),
+      fetchStreamerClicks('click_streamer_offline', params.from, params.to, 10000),
     ]);
 
     // Process gender data
@@ -310,7 +315,7 @@ export class ReportsService {
       ...Object.keys(topProgramsByClicksLive),
       ...Object.keys(topProgramsByClicksDeferred)
     ];
-    
+
     const programChannels = await this.dataSource
       .createQueryBuilder(Program, 'program')
       .leftJoin('program.channel', 'channel')
@@ -323,6 +328,56 @@ export class ReportsService {
       map[item.programName] = item.channelName;
       return map;
     }, {} as Record<string, string>);
+
+    // Process streamer clicks - aggregate by streamer_name with platform info
+    const processStreamerClicks = (events: typeof streamerClicksLive) => {
+      const streamerMap = new Map<string, { streamerName: string; platform: string; count: number }>();
+
+      for (const event of events) {
+        const streamerName = event.properties?.streamer_name || 'Unknown';
+        const platform = event.properties?.platform || 'unknown';
+        const key = `${streamerName}__${platform}`;
+
+        if (!streamerMap.has(key)) {
+          streamerMap.set(key, { streamerName, platform, count: 0 });
+        }
+        streamerMap.get(key)!.count += 1;
+      }
+
+      return Array.from(streamerMap.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+    };
+
+    const processStreamerClicksByPlatform = (events: typeof streamerClicksLive, platformFilter: string) => {
+      const filtered = events.filter(e => e.properties?.platform === platformFilter);
+      const streamerMap = new Map<string, { streamerName: string; count: number }>();
+
+      for (const event of filtered) {
+        const streamerName = event.properties?.streamer_name || 'Unknown';
+
+        if (!streamerMap.has(streamerName)) {
+          streamerMap.set(streamerName, { streamerName, count: 0 });
+        }
+        streamerMap.get(streamerName)!.count += 1;
+      }
+
+      return Array.from(streamerMap.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+    };
+
+    // All streamers rankings
+    const topStreamersByClicksLive = processStreamerClicks(streamerClicksLive);
+    const topStreamersByClicksOffline = processStreamerClicks(streamerClicksOffline);
+
+    // Twitch-only rankings
+    const topTwitchStreamersByClicksLive = processStreamerClicksByPlatform(streamerClicksLive, 'twitch');
+    const topTwitchStreamersByClicksOffline = processStreamerClicksByPlatform(streamerClicksOffline, 'twitch');
+
+    // Kick-only rankings
+    const topKickStreamersByClicksLive = processStreamerClicksByPlatform(streamerClicksLive, 'kick');
+    const topKickStreamersByClicksOffline = processStreamerClicksByPlatform(streamerClicksOffline, 'kick');
 
     const data: WeeklyReportData = {
       from: params.from,
@@ -354,21 +409,28 @@ export class ReportsService {
         count: parseInt(p.count),
       })),
       topProgramsByClicksLive: Object.entries(topProgramsByClicksLive)
-        .map(([programName, count]) => ({ 
-          programName, 
+        .map(([programName, count]) => ({
+          programName,
           channelName: programChannelMap[programName] || 'Unknown',
-          count 
+          count
         }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 5),
       topProgramsByClicksDeferred: Object.entries(topProgramsByClicksDeferred)
-        .map(([programName, count]) => ({ 
-          programName, 
+        .map(([programName, count]) => ({
+          programName,
           channelName: programChannelMap[programName] || 'Unknown',
-          count 
+          count
         }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 5),
+      // Streamer rankings
+      topStreamersByClicksLive,
+      topStreamersByClicksOffline,
+      topTwitchStreamersByClicksLive,
+      topTwitchStreamersByClicksOffline,
+      topKickStreamersByClicksLive,
+      topKickStreamersByClicksOffline,
       rankingChanges: [],
     };
 
@@ -425,6 +487,43 @@ export class ReportsService {
         title: 'Top 5 programas por clicks en YouTube (diferido)',
         yLabel: 'Clicks',
       }))).toString('base64'),
+      // Streamer charts
+      topStreamersByClicksLive: data.topStreamersByClicksLive?.length ? (await renderBarChart(barChartConfig({
+        labels: data.topStreamersByClicksLive.map(s => `${s.streamerName} (${s.platform})`),
+        datasets: [{ label: 'Clicks en vivo', data: data.topStreamersByClicksLive.map(s => s.count) }],
+        title: 'Top 5 streamers por clicks (en vivo)',
+        yLabel: 'Clicks',
+      }))).toString('base64') : null,
+      topStreamersByClicksOffline: data.topStreamersByClicksOffline?.length ? (await renderBarChart(barChartConfig({
+        labels: data.topStreamersByClicksOffline.map(s => `${s.streamerName} (${s.platform})`),
+        datasets: [{ label: 'Clicks offline', data: data.topStreamersByClicksOffline.map(s => s.count) }],
+        title: 'Top 5 streamers por clicks (offline)',
+        yLabel: 'Clicks',
+      }))).toString('base64') : null,
+      topTwitchStreamersByClicksLive: data.topTwitchStreamersByClicksLive?.length ? (await renderBarChart(barChartConfig({
+        labels: data.topTwitchStreamersByClicksLive.map(s => s.streamerName),
+        datasets: [{ label: 'Clicks en vivo', data: data.topTwitchStreamersByClicksLive.map(s => s.count) }],
+        title: 'Top 5 streamers Twitch por clicks (en vivo)',
+        yLabel: 'Clicks',
+      }))).toString('base64') : null,
+      topTwitchStreamersByClicksOffline: data.topTwitchStreamersByClicksOffline?.length ? (await renderBarChart(barChartConfig({
+        labels: data.topTwitchStreamersByClicksOffline.map(s => s.streamerName),
+        datasets: [{ label: 'Clicks offline', data: data.topTwitchStreamersByClicksOffline.map(s => s.count) }],
+        title: 'Top 5 streamers Twitch por clicks (offline)',
+        yLabel: 'Clicks',
+      }))).toString('base64') : null,
+      topKickStreamersByClicksLive: data.topKickStreamersByClicksLive?.length ? (await renderBarChart(barChartConfig({
+        labels: data.topKickStreamersByClicksLive.map(s => s.streamerName),
+        datasets: [{ label: 'Clicks en vivo', data: data.topKickStreamersByClicksLive.map(s => s.count) }],
+        title: 'Top 5 streamers Kick por clicks (en vivo)',
+        yLabel: 'Clicks',
+      }))).toString('base64') : null,
+      topKickStreamersByClicksOffline: data.topKickStreamersByClicksOffline?.length ? (await renderBarChart(barChartConfig({
+        labels: data.topKickStreamersByClicksOffline.map(s => s.streamerName),
+        datasets: [{ label: 'Clicks offline', data: data.topKickStreamersByClicksOffline.map(s => s.count) }],
+        title: 'Top 5 streamers Kick por clicks (offline)',
+        yLabel: 'Clicks',
+      }))).toString('base64') : null,
     };
 
     return await generateWeeklyReportPdf({ data, charts });
@@ -529,17 +628,17 @@ export class ReportsService {
     try {
       const browser = await getBrowser();
       page = await browser.newPage();
-      
+
       // Set a longer timeout for page operations
       page.setDefaultTimeout(60000);
-      
+
       await page.setContent(html, { waitUntil: 'networkidle0' });
-      const pdfBuffer = await page.pdf({ 
-        format: 'A4', 
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
         printBackground: true,
-        timeout: 60000 
+        timeout: 60000
       });
-      
+
       return Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
     } catch (error) {
       console.error('Error generating PDF from HTML:', error);
@@ -693,18 +792,18 @@ export class ReportsService {
     } else if (metric === 'youtube_clicks') {
       // Top channels by YouTube clicks from PostHog (aggregate live + deferred)
       console.log(`🔍 Fetching YouTube clicks for channels from ${from} to ${to}`);
-      
+
       const [live, deferred] = await Promise.all([
         fetchYouTubeClicks('click_youtube_live', from, to, 10000),
         fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
       ]);
-      
+
       console.log(`📊 YouTube clicks data received:`, {
         liveCount: live.length,
         deferredCount: deferred.length,
         totalEvents: live.length + deferred.length
       });
-      
+
       // Aggregate by channel name
       const map = new Map();
       for (const row of [...live, ...deferred]) {
@@ -712,11 +811,11 @@ export class ReportsService {
         if (!map.has(key)) map.set(key, { name: key, count: 0 });
         map.get(key).count += 1;
       }
-      
+
       const result = Array.from(map.values())
         .sort((a, b) => b.count - a.count)
         .slice(0, limit);
-      
+
       console.log(`✅ Aggregated YouTube clicks result:`, result);
       return result;
     }
@@ -838,18 +937,18 @@ export class ReportsService {
     } else if (metric === 'youtube_clicks') {
       // Top programs by YouTube clicks from PostHog (aggregate live + deferred)
       console.log(`🔍 Fetching YouTube clicks for programs from ${from} to ${to}`);
-      
+
       const [live, deferred] = await Promise.all([
         fetchYouTubeClicks('click_youtube_live', from, to, 10000),
         fetchYouTubeClicks('click_youtube_deferred', from, to, 10000),
       ]);
-      
+
       console.log(`📊 YouTube clicks data received for programs:`, {
         liveCount: live.length,
         deferredCount: deferred.length,
         totalEvents: live.length + deferred.length
       });
-      
+
       // Aggregate by program name
       const map = new Map();
       for (const row of [...live, ...deferred]) {
@@ -857,25 +956,25 @@ export class ReportsService {
         if (!map.has(key)) map.set(key, { name: key, count: 0 });
         map.get(key).count += 1;
       }
-      
+
       const result = Array.from(map.values())
         .sort((a, b) => b.count - a.count)
         .slice(0, limit);
-      
+
       console.log(`✅ Aggregated YouTube clicks result for programs:`, result);
       return result;
     }
     return [];
   }
 
-  async generatePeriodicReport(params: { 
-    from: string; 
-    to: string; 
+  async generatePeriodicReport(params: {
+    from: string;
+    to: string;
     channelId?: number;
     period: 'monthly' | 'quarterly' | 'yearly';
   }): Promise<Buffer> {
     const { from, to, channelId, period } = params;
-    
+
     // Fetch data similar to weekly report but with different time ranges
     const [
       totalNewUsers,
@@ -1258,10 +1357,10 @@ export class ReportsService {
     if (!isInTop5ByLiveClicks) {
       // Get live clicks for this specific channel
       const liveClicks = await fetchYouTubeClicks('click_youtube_live', from, to, 10000);
-      
+
       const channelLiveClicks = liveClicks.filter(c => c.properties.channel_name === channel.name);
       const totalLiveClicks = channelLiveClicks.length;
-      
+
       if (totalLiveClicks > 0) {
         finalLiveClicksRanking.push({
           id: channelId,
@@ -1274,10 +1373,10 @@ export class ReportsService {
     if (!isInTop5ByDeferredClicks) {
       // Get deferred clicks for this specific channel
       const deferredClicks = await fetchYouTubeClicks('click_youtube_deferred', from, to, 10000);
-      
+
       const channelDeferredClicks = deferredClicks.filter(c => c.properties.channel_name === channel.name);
       const totalDeferredClicks = channelDeferredClicks.length;
-      
+
       if (totalDeferredClicks > 0) {
         finalDeferredClicksRanking.push({
           id: channelId,
@@ -1321,7 +1420,7 @@ export class ReportsService {
         .orderBy('count', 'DESC')
         .limit(5)
         .getRawMany();
-      
+
       // Replace the empty array
       channelProgramsBySubscriptions.length = 0;
       channelProgramsBySubscriptions.push(...directPrograms);
@@ -1352,12 +1451,12 @@ export class ReportsService {
         fetchYouTubeClicks('click_youtube_live', from, to, 100),
         fetchYouTubeClicks('click_youtube_deferred', from, to, 100),
       ]);
-      
+
       // Filter clicks for this specific channel
       const channelClicks = [...liveClicks, ...deferredClicks].filter(
         click => click.properties.channel_name === channel.name
       );
-      
+
       // Aggregate by program name
       const programMap = new Map();
       for (const click of channelClicks) {
@@ -1367,12 +1466,12 @@ export class ReportsService {
         }
         programMap.get(programName).count += 1;
       }
-      
+
       // Convert to array and sort by count
       const channelProgramsArray = Array.from(programMap.values())
         .sort((a, b) => b.count - a.count)
         .slice(0, 5);
-      
+
       // Replace the empty array
       channelProgramsByClicks.length = 0;
       channelProgramsByClicks.push(...channelProgramsArray);
@@ -1471,7 +1570,7 @@ export class ReportsService {
         .andWhere('subscription.isActive = :isActive', { isActive: true })
         .groupBy('"user"."birth_date"')
         .getRawMany();
-      
+
       console.log('Simple age query result:', simpleAgeQuery);
     }
 
@@ -1569,12 +1668,12 @@ export class ReportsService {
     subscriptionsByGender: any[];
     subscriptionsByAge: any[];
   }): string {
-    const { 
-      channel, 
-      from, 
-      to, 
-      finalSubscriptionsRanking, 
-      finalLiveClicksRanking, 
+    const {
+      channel,
+      from,
+      to,
+      finalSubscriptionsRanking,
+      finalLiveClicksRanking,
       finalDeferredClicksRanking,
       channelPositionBySubscriptions,
       channelPositionByLiveClicks,
@@ -1584,8 +1683,8 @@ export class ReportsService {
       isInTop5ByDeferredClicks,
       channelProgramsBySubscriptions,
       channelProgramsByClicks,
-      subscriptionsByGender, 
-      subscriptionsByAge 
+      subscriptionsByGender,
+      subscriptionsByAge
     } = data;
 
     return `
@@ -1643,15 +1742,15 @@ export class ReportsService {
           <div class="chart-container">
             <h3>Top 5 Canales por Suscripciones</h3>
             ${finalSubscriptionsRanking.map((ch, index) => {
-              const isHighlighted = ch.id === channel.id;
-              const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
-              const width = Math.max(20, (ch.count / Math.max(...finalSubscriptionsRanking.map(c => c.count))) * 100);
-              return `
+      const isHighlighted = ch.id === channel.id;
+      const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
+      const width = Math.max(20, (ch.count / Math.max(...finalSubscriptionsRanking.map(c => c.count))) * 100);
+      return `
                 <div class="${barClass}" style="width: ${width}%">
                   ${index + 1}º - ${ch.name}: ${ch.count} suscripciones
                 </div>
               `;
-            }).join('')}
+    }).join('')}
           </div>
         </div>
 
@@ -1665,15 +1764,15 @@ export class ReportsService {
           <div class="chart-container">
             <h3>Top 5 Canales por Clicks de YouTube en Vivo</h3>
             ${finalLiveClicksRanking.map((ch, index) => {
-              const isHighlighted = ch.name === channel.name || ch.name.startsWith(channel.name + ' (');
-              const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
-              const width = Math.max(20, (ch.count / Math.max(...finalLiveClicksRanking.map(c => c.count))) * 100);
-              return `
+      const isHighlighted = ch.name === channel.name || ch.name.startsWith(channel.name + ' (');
+      const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
+      const width = Math.max(20, (ch.count / Math.max(...finalLiveClicksRanking.map(c => c.count))) * 100);
+      return `
                 <div class="${barClass}" style="width: ${width}%">
                   ${index + 1}º - ${ch.name}: ${ch.count} clicks
                 </div>
               `;
-            }).join('')}
+    }).join('')}
           </div>
         </div>
 
@@ -1687,15 +1786,15 @@ export class ReportsService {
           <div class="chart-container">
             <h3>Top 5 Canales por Clicks de YouTube Diferido</h3>
             ${finalDeferredClicksRanking.map((ch, index) => {
-              const isHighlighted = ch.name === channel.name || ch.name.startsWith(channel.name + ' (');
-              const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
-              const width = Math.max(20, (ch.count / Math.max(...finalDeferredClicksRanking.map(c => c.count))) * 100);
-              return `
+      const isHighlighted = ch.name === channel.name || ch.name.startsWith(channel.name + ' (');
+      const barClass = isHighlighted ? 'bar highlighted-bar' : 'bar';
+      const width = Math.max(20, (ch.count / Math.max(...finalDeferredClicksRanking.map(c => c.count))) * 100);
+      return `
                 <div class="${barClass}" style="width: ${width}%">
                   ${index + 1}º - ${ch.name}: ${ch.count} clicks
                 </div>
               `;
-            }).join('')}
+    }).join('')}
           </div>
         </div>
 
@@ -1704,13 +1803,13 @@ export class ReportsService {
           ${channelProgramsBySubscriptions.length > 0 ? `
             <div class="chart-container">
               ${channelProgramsBySubscriptions.map((program, index) => {
-                const width = Math.max(20, (program.count / Math.max(...channelProgramsBySubscriptions.map(p => p.count))) * 100);
-                return `
+      const width = Math.max(20, (program.count / Math.max(...channelProgramsBySubscriptions.map(p => p.count))) * 100);
+      return `
                   <div class="bar" style="width: ${width}%">
                     ${index + 1}º - ${program.name}: ${program.count} suscripciones
                   </div>
                 `;
-              }).join('')}
+    }).join('')}
             </div>
           ` : '<p>No hay programas con suscripciones en este período</p>'}
         </div>
@@ -1720,13 +1819,13 @@ export class ReportsService {
           ${channelProgramsByClicks.length > 0 ? `
             <div class="chart-container">
               ${channelProgramsByClicks.map((program, index) => {
-                const width = Math.max(20, (program.count / Math.max(...channelProgramsByClicks.map(p => p.count))) * 100);
-                return `
+      const width = Math.max(20, (program.count / Math.max(...channelProgramsByClicks.map(p => p.count))) * 100);
+      return `
                   <div class="bar" style="width: ${width}%">
                     ${index + 1}º - ${program.name}: ${program.count} clicks
                   </div>
                 `;
-              }).join('')}
+    }).join('')}
             </div>
           ` : '<p>No hay programas con clicks de YouTube en este período</p>'}
         </div>
@@ -1736,21 +1835,21 @@ export class ReportsService {
           <div class="stats-grid">
             <div class="stat-box">
               <div class="stat-title">Suscripciones por Género</div>
-              ${subscriptionsByGender.length > 0 ? 
-                subscriptionsByGender.map(item => `
+              ${subscriptionsByGender.length > 0 ?
+        subscriptionsByGender.map(item => `
                   <div><strong>${item.gender || 'No especificado'}:</strong> ${item.count}</div>
-                `).join('') : 
-                '<div>No hay datos de género disponibles</div>'
-              }
+                `).join('') :
+        '<div>No hay datos de género disponibles</div>'
+      }
             </div>
             <div class="stat-box">
               <div class="stat-title">Suscripciones por Edad</div>
-              ${subscriptionsByAge.length > 0 ? 
-                subscriptionsByAge.map(item => `
+              ${subscriptionsByAge.length > 0 ?
+        subscriptionsByAge.map(item => `
                   <div><strong>${item.displayLabel}:</strong> ${item.count}</div>
-                `).join('') : 
-                '<div>No hay datos de edad disponibles</div>'
-              }
+                `).join('') :
+        '<div>No hay datos de edad disponibles</div>'
+      }
             </div>
           </div>
         </div>
