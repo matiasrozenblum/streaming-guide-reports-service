@@ -331,25 +331,96 @@ export async function generatePeriodicReportPdf({
             </div>
           </div>
         </div>
+
+        ${charts.topStreamersByClicksLive || charts.topStreamersByClicksOffline ? `
+        <div class="section">
+          <h2 class="section-title">Top 5 Streamers</h2>
+          
+          ${(charts.topStreamersByClicksLive || charts.topStreamersByClicksOffline) ? `
+          <div class="two-column">
+            ${charts.topStreamersByClicksLive ? `
+            <div class="card">
+              <div class="card-title">Clicks en Vivo (Todas las plataformas)</div>
+              <div class="chart-container">
+                <img class="chart-img" src="data:image/png;base64,${charts.topStreamersByClicksLive}" />
+              </div>
+            </div>
+            ` : ''}
+            ${charts.topStreamersByClicksOffline ? `
+            <div class="card">
+              <div class="card-title">Clicks Offline (Todas las plataformas)</div>
+              <div class="chart-container">
+                <img class="chart-img" src="data:image/png;base64,${charts.topStreamersByClicksOffline}" />
+              </div>
+            </div>
+            ` : ''}
+          </div>
+          ` : ''}
+
+          ${(charts.topTwitchStreamersByClicksLive || charts.topTwitchStreamersByClicksOffline) ? `
+          <h3>Twitch</h3>
+          <div class="two-column">
+            ${charts.topTwitchStreamersByClicksLive ? `
+            <div class="card">
+              <div class="card-title">Clicks en Vivo (Twitch)</div>
+              <div class="chart-container">
+                <img class="chart-img" src="data:image/png;base64,${charts.topTwitchStreamersByClicksLive}" />
+              </div>
+            </div>
+            ` : ''}
+            ${charts.topTwitchStreamersByClicksOffline ? `
+            <div class="card">
+              <div class="card-title">Clicks Offline (Twitch)</div>
+              <div class="chart-container">
+                <img class="chart-img" src="data:image/png;base64,${charts.topTwitchStreamersByClicksOffline}" />
+              </div>
+            </div>
+            ` : ''}
+          </div>
+          ` : ''}
+
+          ${(charts.topKickStreamersByClicksLive || charts.topKickStreamersByClicksOffline) ? `
+          <h3>Kick</h3>
+          <div class="two-column">
+            ${charts.topKickStreamersByClicksLive ? `
+            <div class="card">
+              <div class="card-title">Clicks en Vivo (Kick)</div>
+              <div class="chart-container">
+                <img class="chart-img" src="data:image/png;base64,${charts.topKickStreamersByClicksLive}" />
+              </div>
+            </div>
+            ` : ''}
+            ${charts.topKickStreamersByClicksOffline ? `
+            <div class="card">
+              <div class="card-title">Clicks Offline (Kick)</div>
+              <div class="chart-container">
+                <img class="chart-img" src="data:image/png;base64,${charts.topKickStreamersByClicksOffline}" />
+              </div>
+            </div>
+            ` : ''}
+          </div>
+          ` : ''}
+        </div>
+        ` : ''}
       </body>
     </html>
   `;
-  
+
   let page = null;
   try {
     const browser = await getBrowser();
     page = await browser.newPage();
-    
+
     // Set a longer timeout for page operations
     page.setDefaultTimeout(60000);
-    
+
     await page.setContent(html, { waitUntil: 'networkidle0' });
-    const pdfBuffer = await page.pdf({ 
-      format: 'A4', 
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
       printBackground: true,
-      timeout: 60000 
+      timeout: 60000
     });
-    
+
     return Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
   } catch (error) {
     console.error('Error generating PDF:', error);
