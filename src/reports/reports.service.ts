@@ -371,14 +371,6 @@ export class ReportsService {
     const topStreamersByClicksLive = processStreamerClicks(streamerClicksLive);
     const topStreamersByClicksOffline = processStreamerClicks(streamerClicksOffline);
 
-    // Log streamer data for debugging
-    console.log('Streamer clicks data:', {
-      streamerClicksLive: streamerClicksLive.length,
-      streamerClicksOffline: streamerClicksOffline.length,
-      topStreamersByClicksLive,
-      topStreamersByClicksOffline,
-    });
-
     // Twitch-only rankings
     const topTwitchStreamersByClicksLive = processStreamerClicksByPlatform(streamerClicksLive, 'twitch');
     const topTwitchStreamersByClicksOffline = processStreamerClicksByPlatform(streamerClicksOffline, 'twitch');

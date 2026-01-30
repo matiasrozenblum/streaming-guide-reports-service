@@ -17,6 +17,11 @@ y este proyecto utiliza [SemVer](https://semver.org/lang/es/).
 
 ---
 
+## [1.5.0] - 2026-01-30
+
+### Added
+- Added streamer click tracking
+
 ## [1.4.0] - 2025-11-16
 
 ### Changed
