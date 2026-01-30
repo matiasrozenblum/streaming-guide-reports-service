@@ -15,23 +15,37 @@ const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY;
 const POSTHOG_API_HOST = process.env.POSTHOG_API_HOST || 'https://app.posthog.com';
 const POSTHOG_PROJECT_ID = process.env.POSTHOG_PROJECT_ID;
 
+// Argentina is UTC-3, so we need to adjust the query times
+// Start of day in Argentina (00:00) = 03:00 UTC same day
+// End of day in Argentina (23:59:59) = 02:59:59 UTC next day
+function getArgentinaDateRange(from: string, to: string): { utcFrom: string; utcTo: string } {
+  // Parse the dates and add the UTC offset for Argentina (UTC-3)
+  const fromDate = new Date(`${from}T03:00:00Z`); // 00:00 Argentina = 03:00 UTC
+  const toDate = new Date(`${to}T23:59:59-03:00`); // 23:59:59 Argentina = next day 02:59:59 UTC
+
+  return {
+    utcFrom: fromDate.toISOString(),
+    utcTo: toDate.toISOString(),
+  };
+}
+
 export async function fetchYouTubeClicks(
   eventType: 'click_youtube_live' | 'click_youtube_deferred',
   from: string,
   to: string,
   limit: number = 1000
 ): Promise<PostHogClickEvent[]> {
-  console.log(`fetchYouTubeClicks(${eventType}): Starting fetch...`, { from, to, hasApiKey: !!POSTHOG_API_KEY, projectId: POSTHOG_PROJECT_ID });
   if (!POSTHOG_API_KEY) {
-    console.log(`fetchYouTubeClicks(${eventType}): No API key, returning empty`);
     return [];
   }
+
+  const { utcFrom, utcTo } = getArgentinaDateRange(from, to);
 
   const endpoints = [
     {
       url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
       method: 'GET',
-      params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+      params: `?event=${eventType}&after=${utcFrom}&before=${utcTo}&limit=${limit}`,
     },
     {
       url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
@@ -41,8 +55,8 @@ export async function fetchYouTubeClicks(
           kind: 'EventsQuery',
           select: ['*'],
           event: [eventType],
-          after: `${from}T00:00:00Z`,
-          before: `${to}T23:59:59Z`,
+          after: utcFrom,
+          before: utcTo,
           limit: limit,
         },
       },
@@ -55,7 +69,7 @@ export async function fetchYouTubeClicks(
     {
       url: `${POSTHOG_API_HOST}/api/events/`,
       method: 'GET',
-      params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+      params: `?event=${eventType}&after=${utcFrom}&before=${utcTo}&limit=${limit}`,
     },
   ];
 
@@ -102,7 +116,7 @@ export async function fetchYouTubeClicks(
 
           while (nextCursor && pageCount < 10) {
             try {
-              const nextUrl = `${endpoint.url}?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&after_cursor=${nextCursor}`;
+              const nextUrl = `${endpoint.url}?event=${eventType}&after=${utcFrom}&before=${utcTo}&limit=${limit}&after_cursor=${nextCursor}`;
 
               const nextRes = await fetch(nextUrl, fetchOptions);
               if (nextRes.ok) {
@@ -125,7 +139,6 @@ export async function fetchYouTubeClicks(
           events = allEvents;
         }
 
-        console.log(`fetchYouTubeClicks: Found ${events.length} events for ${eventType}`);
         return events as PostHogClickEvent[];
       } else {
         const errorBody = await res.text();
@@ -161,17 +174,17 @@ export async function fetchStreamerClicks(
   to: string,
   limit: number = 1000
 ): Promise<PostHogClickEvent[]> {
-  console.log(`fetchStreamerClicks(${eventType}): Starting fetch...`, { from, to, host: POSTHOG_API_HOST, projectId: POSTHOG_PROJECT_ID });
   if (!POSTHOG_API_KEY) {
-    console.log(`fetchStreamerClicks(${eventType}): No API key`);
     return [];
   }
+
+  const { utcFrom, utcTo } = getArgentinaDateRange(from, to);
 
   const endpoints = [
     {
       url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/events/`,
       method: 'GET',
-      params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+      params: `?event=${eventType}&after=${utcFrom}&before=${utcTo}&limit=${limit}`,
     },
     {
       url: `${POSTHOG_API_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
@@ -181,8 +194,8 @@ export async function fetchStreamerClicks(
           kind: 'EventsQuery',
           select: ['*'],
           event: [eventType],
-          after: `${from}T00:00:00Z`,
-          before: `${to}T23:59:59Z`,
+          after: utcFrom,
+          before: utcTo,
           limit: limit,
         },
       },
@@ -195,7 +208,7 @@ export async function fetchStreamerClicks(
     {
       url: `${POSTHOG_API_HOST}/api/events/`,
       method: 'GET',
-      params: `?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}`,
+      params: `?event=${eventType}&after=${utcFrom}&before=${utcTo}&limit=${limit}`,
     },
   ];
 
@@ -242,7 +255,7 @@ export async function fetchStreamerClicks(
 
           while (nextCursor && pageCount < 10) {
             try {
-              const nextUrl = `${endpoint.url}?event=${eventType}&after=${from}T00:00:00Z&before=${to}T23:59:59Z&limit=${limit}&after_cursor=${nextCursor}`;
+              const nextUrl = `${endpoint.url}?event=${eventType}&after=${utcFrom}&before=${utcTo}&limit=${limit}&after_cursor=${nextCursor}`;
 
               const nextRes = await fetch(nextUrl, fetchOptions);
               if (nextRes.ok) {
@@ -265,19 +278,15 @@ export async function fetchStreamerClicks(
           events = allEvents;
         }
 
-        console.log(`fetchStreamerClicks(${eventType}): Found ${events.length} events`);
         return events as PostHogClickEvent[];
       } else {
         const errorBody = await res.text();
         lastError = new Error(`HTTP ${res.status}: ${res.statusText} - ${errorBody}`);
-        console.log(`fetchStreamerClicks(${eventType}): Endpoint failed - ${res.status}`);
       }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      console.log(`fetchStreamerClicks(${eventType}): Exception - ${lastError.message}`);
     }
   }
 
-  console.error(`fetchStreamerClicks(${eventType}): All endpoints failed, returning empty array. Last error:`, lastError?.message);
   return []; // Return empty array instead of throwing to not break the report
 } 
