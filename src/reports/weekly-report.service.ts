@@ -14,6 +14,13 @@ export interface WeeklyReportData {
   topProgramsBySubscriptions: { programId: number; programName: string; channelName: string; count: number }[];
   topProgramsByClicksLive: { programName: string; channelName: string; count: number }[];
   topProgramsByClicksDeferred: { programName: string; channelName: string; count: number }[];
+  // Streamer rankings
+  topStreamersByClicksLive?: { streamerName: string; platform: string; count: number }[];
+  topStreamersByClicksOffline?: { streamerName: string; platform: string; count: number }[];
+  topTwitchStreamersByClicksLive?: { streamerName: string; count: number }[];
+  topTwitchStreamersByClicksOffline?: { streamerName: string; count: number }[];
+  topKickStreamersByClicksLive?: { streamerName: string; count: number }[];
+  topKickStreamersByClicksOffline?: { streamerName: string; count: number }[];
   rankingChanges: {
     type: 'channel' | 'program';
     metric: 'subscriptions' | 'clicksLive' | 'clicksDeferred';
