@@ -260,15 +260,19 @@ export async function fetchStreamerClicks(
           events = allEvents;
         }
 
+        console.log(`fetchStreamerClicks(${eventType}): Found ${events.length} events`);
         return events as PostHogClickEvent[];
       } else {
         const errorBody = await res.text();
         lastError = new Error(`HTTP ${res.status}: ${res.statusText} - ${errorBody}`);
+        console.log(`fetchStreamerClicks(${eventType}): Endpoint failed - ${res.status}`);
       }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      console.log(`fetchStreamerClicks(${eventType}): Exception - ${lastError.message}`);
     }
   }
 
-  throw lastError || new Error('All PostHog API endpoints failed');
+  console.error(`fetchStreamerClicks(${eventType}): All endpoints failed, returning empty array. Last error:`, lastError?.message);
+  return []; // Return empty array instead of throwing to not break the report
 } 
