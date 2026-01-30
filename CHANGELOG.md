@@ -17,6 +17,11 @@ y este proyecto utiliza [SemVer](https://semver.org/lang/es/).
 
 ---
 
+## [1.4.0] - 2025-11-16
+
+### Changed
+- PDF facelift
+
 ## [1.3.1] - 2025-08-12
 
 ### Fixed
